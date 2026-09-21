@@ -166,10 +166,51 @@ export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
       ws.onerror = () => {};
     };
 
+    /**
+     * Say goodbye explicitly before the page goes away.
+     *
+     * Tearing down a page drops the TCP connection without sending a
+     * WebSocket close frame, and the server does not notice: the socket keeps
+     * reporting as OPEN, so the player lingers in the room holding their name
+     * and stalling the round. Effect cleanup does not help, because it does
+     * not run on navigation or tab close.
+     *
+     * `pagehide` is the one teardown event that is reliable on mobile
+     * Safari, and unlike `unload` it does not disqualify the page from the
+     * back/forward cache.
+     */
+    const onPageHide = () => {
+      const ws = socketRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close(1000, "Leaving");
+      }
+      clearTimeout(retryTimer);
+      clearInterval(heartbeat);
+    };
+
+    /**
+     * Restored from the back/forward cache, where we closed the socket on the
+     * way out. Timers were frozen too, so reconnect immediately rather than
+     * waiting on a backoff that may never fire.
+     */
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted || disposed || giveUp) return;
+      const ws = socketRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        attempt = 0;
+        connect();
+      }
+    };
+
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+
     connect();
 
     return () => {
       disposed = true;
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
       clearTimeout(retryTimer);
       clearInterval(heartbeat);
       const ws = socketRef.current;

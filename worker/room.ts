@@ -26,17 +26,22 @@ import { pickPrompt } from "./prompts";
 
 const STATE_KEY = "room";
 
+/**
+ * Note what is *not* here: whether the player is currently connected.
+ *
+ * Connectivity describes a live socket, so storing it durably lets it outlive
+ * the thing it describes. A stored flag is only ever corrected by a close
+ * event, and a close event can go missing — the object can be restarted by a
+ * deploy, moved, or (in dev) swapped out by HMR. When that happens the flag
+ * stays `true` forever with no path back to the truth, which leaves a ghost
+ * occupying a seat, holding a name, and blocking the round from ending early.
+ *
+ * So it is derived from the live socket set instead. See `isConnected`.
+ */
 interface StoredPlayer {
   id: string;
   name: string;
-  connected: boolean;
   joinedAt: number;
-  /**
-   * Bumped every time this player opens a new socket. Lets us tell a stale
-   * connection's close event apart from the current one — see
-   * `handleDisconnect`.
-   */
-  seq: number;
 }
 
 interface StoredRoom {
@@ -58,8 +63,6 @@ interface StoredRoom {
 interface Attachment {
   playerId: string;
   role: Role;
-  /** Which connection attempt this socket belongs to. Unused for the host. */
-  seq: number;
 }
 
 const tagForPlayer = (playerId: string) => `id:${playerId}`;
@@ -145,7 +148,6 @@ export class Room extends DurableObject<Env> {
 
     const role: Role = url.searchParams.get("role") === "host" ? "host" : "player";
     let identity: Identity;
-    let seq = 0;
 
     if (role === "host") {
       const token = url.searchParams.get("hostToken");
@@ -164,6 +166,10 @@ export class Room extends DurableObject<Env> {
         return refuse("bad_name", "Pick a name with at least one character.");
       }
 
+      // Drop anyone who left the lobby without us hearing about it, so a
+      // ghost cannot keep holding a name or a slot.
+      this.pruneGhosts();
+
       const existing = requestedId
         ? this.room.players.find((player) => player.id === requestedId)
         : undefined;
@@ -180,9 +186,6 @@ export class Room extends DurableObject<Env> {
       if (existing) {
         // A returning phone reclaims its seat, keeping its submission.
         existing.name = name;
-        existing.connected = true;
-        existing.seq += 1;
-        seq = existing.seq;
         identity = { id: existing.id, role: "player", name };
       } else {
         if (this.room.players.length >= MAX_PLAYERS) {
@@ -194,12 +197,9 @@ export class Room extends DurableObject<Env> {
           // value only ever reaches the one client that owns it.
           id: requestedId ?? crypto.randomUUID(),
           name,
-          connected: true,
           joinedAt: Date.now(),
-          seq: 1,
         };
         this.room.players.push(player);
-        seq = player.seq;
         identity = { id: player.id, role: "player", name };
       }
     }
@@ -209,12 +209,12 @@ export class Room extends DurableObject<Env> {
     // acceptWebSocket (not server.accept) is what enables hibernation: the
     // room can drop out of memory while every phone stays connected.
     this.ctx.acceptWebSocket(server, [`role:${role}`, tagForPlayer(identity.id)]);
-    server.serializeAttachment({ playerId: identity.id, role, seq } satisfies Attachment);
+    server.serializeAttachment({ playerId: identity.id, role } satisfies Attachment);
 
     // Best-effort tidy-up of a superseded socket (refresh, second tab, or
     // React StrictMode double-mounting in dev). This is intentionally not
     // load-bearing: the runtime can take a while to actually flush the close
-    // frame, so `seq` — not this call — is what keeps bookkeeping correct.
+    // frame, and connectivity is derived from live sockets anyway.
     for (const socket of this.ctx.getWebSockets(tagForPlayer(identity.id))) {
       if (socket !== server) {
         try {
@@ -301,7 +301,7 @@ export class Room extends DurableObject<Env> {
         room.answers = [];
         room.deadline = null;
         // Drop players who wandered off, so the next round starts clean.
-        room.players = room.players.filter((player) => player.connected);
+        room.players = room.players.filter((player) => this.isConnected(player.id));
         await this.save();
         await this.scheduleAlarm();
         this.broadcast();
@@ -361,18 +361,18 @@ export class Room extends DurableObject<Env> {
     const player = this.room.players.find((entry) => entry.id === attachment.playerId);
     if (!player) return;
 
-    // Ignore close events from superseded sockets. Without this, a refresh
-    // (old socket closes *after* the new one opens) would mark a perfectly
-    // connected player as gone, or worse, delete them from the lobby.
-    if (attachment.seq !== player.seq) return;
+    // A refresh or a second tab means the close we are handling may belong to
+    // a socket that has already been replaced. Asking whether any live socket
+    // remains answers that directly, and unlike a stored flag it stays right
+    // no matter what order the events arrive in.
+    if (this.isConnected(player.id, ws)) return;
 
     if (this.room.phase === "lobby") {
       // Nothing to preserve before the game starts — free the name and slot.
       this.room.players = this.room.players.filter((entry) => entry.id !== player.id);
-    } else {
-      // Mid-game: keep the seat and their answer so they can come back.
-      player.connected = false;
     }
+    // Mid-game we keep the seat and the answer so they can come back. There is
+    // no flag to flip either way, since `connected` is derived.
 
     this.touch();
     await this.save();
@@ -446,9 +446,40 @@ export class Room extends DurableObject<Env> {
   // Helpers
   // -------------------------------------------------------------------------
 
+  /**
+   * Ground truth for whether a player is here: do they hold an open socket?
+   *
+   * `getWebSockets` also returns hibernated sockets, so this stays correct
+   * while the room is asleep. If the object is ever restarted and loses its
+   * sockets, everyone simply reads as disconnected until they reconnect,
+   * which is exactly right — and is what a stored flag could never do.
+   */
+  private isConnected(playerId: string, exclude?: WebSocket): boolean {
+    return this.ctx
+      .getWebSockets(tagForPlayer(playerId))
+      .some((socket) => socket !== exclude && socket.readyState === WebSocket.OPEN);
+  }
+
+  /**
+   * Forgets lobby players who no longer hold a socket.
+   *
+   * Disconnects are normally handled by `webSocketClose`, but that event is
+   * not guaranteed to arrive. Re-checking on join means a missed close heals
+   * itself the next time anyone shows up, instead of leaving a ghost that
+   * holds a name forever.
+   */
+  private pruneGhosts(): void {
+    if (this.room === null || this.room.phase !== "lobby") return;
+    this.room.players = this.room.players.filter((player) =>
+      this.isConnected(player.id),
+    );
+  }
+
   private everyoneAnswered(): boolean {
     if (this.room === null) return false;
-    const active = this.room.players.filter((player) => player.connected);
+    // Only players who are actually here can be waited on. A ghost would
+    // otherwise stall the round until the full timer expired.
+    const active = this.room.players.filter((player) => this.isConnected(player.id));
     if (active.length === 0) return false;
     return active.every((player) =>
       this.room!.answers.some((answer) => answer.playerId === player.id),
@@ -460,7 +491,7 @@ export class Room extends DurableObject<Env> {
     const players: PublicPlayer[] = room.players.map((player) => ({
       id: player.id,
       name: player.name,
-      connected: player.connected,
+      connected: this.isConnected(player.id),
       submitted: room.answers.some((answer) => answer.playerId === player.id),
     }));
 
