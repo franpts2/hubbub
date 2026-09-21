@@ -9,6 +9,8 @@
     <img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=white" alt="Vite"/>
 </div>
 
+**Live:** [hubbub.franciscaportugal2005.workers.dev](https://hubbub.franciscaportugal2005.workers.dev)
+
 ## About
 
 Hubbub is a party game you play in the same room. One screen — a TV or a laptop — acts as the shared board and shows a four-letter room code. Everyone else joins from their own phone by typing that code, and their phone becomes their controller. No app to install, no accounts, no sign-up.
@@ -223,6 +225,8 @@ The build is not optional here. `npm run build` writes a redirect config into `.
 npx wrangler login
 npm run deploy
 ```
+
+The current deployment lives at [hubbub.franciscaportugal2005.workers.dev](https://hubbub.franciscaportugal2005.workers.dev). `wrangler.jsonc` pins `account_id`, so `npm run deploy` always targets that account even if your Wrangler login has access to several.
 
 Everything in `wrangler.jsonc` is free-tier compatible. Durable Objects need the SQLite storage backend to be available without a paid plan, which is what `new_sqlite_classes` in the migration selects.
 
