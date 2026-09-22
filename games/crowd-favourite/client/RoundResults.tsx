@@ -1,4 +1,4 @@
-import { Eyebrow, eyebrowClass, stagger } from "../../../src/components/ui";
+import { Eyebrow, eyebrowClass, PlayerBlob, stagger } from "../../../src/components/ui";
 import type { ScoresView } from "../shared";
 
 /**
@@ -30,9 +30,17 @@ export function RoundResults({ view }: { view: ScoresView }) {
               won ? "border-zap bg-zap/15" : "border-ink-line bg-ink-soft"
             }`}
           >
-            <div className="min-w-0">
-              <p className="text-2xl font-black text-balance">{result.text}</p>
-              <p className={eyebrowClass({ size: "xs" }, "mt-1")}>{result.name}</p>
+            {/*
+              The one screen in this game that may show a face at all. The
+              ballot is anonymous by construction — `Candidate` carries no
+              author — and this is the moment that stops being true.
+            */}
+            <div className="flex min-w-0 items-center gap-3">
+              <PlayerBlob seed={result.playerId} />
+              <div className="min-w-0">
+                <p className="text-2xl font-black text-balance">{result.text}</p>
+                <p className={eyebrowClass({ size: "xs" }, "mt-1")}>{result.name}</p>
+              </div>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-3xl font-black tabular-nums">

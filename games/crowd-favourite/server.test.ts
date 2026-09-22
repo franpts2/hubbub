@@ -405,6 +405,50 @@ describe("scoring", () => {
     });
   });
 
+  /**
+   * The two halves of this game's anonymity rule, asserted together because
+   * they are only correct as a pair: an author is withheld while the ballot
+   * is open and published once it closes. Splitting them into two tests
+   * would let either half be deleted while the other kept passing.
+   *
+   * `playerId` is also what the host screen seeds a player's blob on, so an
+   * author going missing from a result is a visual bug as well as a scoring
+   * one.
+   */
+  it("withholds the author during voting and names them in the results", () => {
+    const { state, seatList } = start("ana", "bo", "cy");
+    everyoneWrites(state, seatList);
+
+    const ballot = viewFor(state, player("ana"), seatList) as VotingView;
+    expect(ballot.phase).toBe("voting");
+    for (const candidate of ballot.candidates) {
+      // Not `toBeUndefined` on a field: the point is that no key leaks one.
+      expect(Object.keys(candidate).sort()).toEqual(["id", "text"]);
+    }
+
+    const anas = myCandidate(state, "ana", seatList);
+    send(state, { t: "vote", candidateId: anas }, player("bo"), seatList);
+    send(state, { t: "vote", candidateId: anas }, player("cy"), seatList);
+    send(
+      state,
+      { t: "vote", candidateId: myCandidate(state, "bo", seatList) },
+      player("ana"),
+      seatList,
+    );
+
+    const scores = viewFor(state, host, seatList) as ScoresView;
+    expect(scores.phase).toBe("scores");
+    expect(scores.results.map((result) => result.playerId).sort()).toEqual([
+      "ana",
+      "bo",
+      "cy",
+    ]);
+    // The author of an answer is the player it scored for, not just any seat.
+    const top = scores.results[0]!;
+    expect(top.playerId).toBe("ana");
+    expect(top.points).toBe(2 * POINTS_PER_VOTE);
+  });
+
   it("carries scores across rounds", () => {
     const { state, seatList } = scored();
     send(state, { t: "next" }, host, seatList);

@@ -357,6 +357,7 @@ export const crowdFavourite: GameDefinition<CrowdFavouriteState, CrowdFavouriteC
               const votes = voteCount(state, entry.id);
               return {
                 id: entry.id,
+                playerId: entry.playerId,
                 text: entry.text,
                 name: entry.name,
                 votes,

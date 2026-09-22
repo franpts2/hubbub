@@ -13,6 +13,7 @@ export { ErrorNote } from "./ErrorNote";
 export { Eyebrow, eyebrowClass } from "./Eyebrow";
 export { Logo } from "./Logo";
 export { Panel } from "./Panel";
+export { PlayerBlob } from "./PlayerBlob";
 export { Screen } from "./Screen";
 export { stagger } from "./stagger";
 export { TextField } from "./TextField";

@@ -211,6 +211,19 @@ below falls out of that split.
 | Transitions name their properties                            | `transition` on its own also animates colour, and a button whose label fades between states looks unsure of itself when what it should look is immediate.                                                                                                                            |
 | The countdown digits never animate                           | They change once a second for a whole round. Anything moving at that rate stops being a clock and becomes a distraction. Only the urgent state animates, as one beat per second in step with the digits.                                                                             |
 | Reduced motion is gentler, not off                           | Fades stay — they are what explains that something appeared, and removing them substitutes a jump cut. Travel, rotation and the two loops go. Press feedback stays, because a button shrinking 3% under a finger is direct manipulation rather than an animation playing at someone. |
+| Player blobs on the shared screen only                       | A caption under an answer is a few pixels of grey from a sofa, and matching it to a person takes longer than it is on screen. A phone is read from thirty centimetres, where the name is already legible and a face would be decoration.                                             |
+| Blobs are seeded on the player id                            | Not the roster position, which shifts for everyone behind a player who leaves. Not the display name, which a reconnecting phone is allowed to change. The id is what the rest of the wire already keys players on.                                                                   |
+| Blob lightness is pinned, not hashed                         | Left to the seed, the dark end of the range came out at 1.39:1 against the background — around a two in five chance that a six-player room contains an invisible face. Pinned pale, the worst case measured 5.74:1.                                                                  |
+
+The four places a blob appears are the lobby roster, a Word Wall card, a
+Crowd Favourite result and the answer Hot Potato is deciding whether to
+challenge — each one a moment where a specific person is the subject. The
+scoreboards deliberately have none: their rows are about 32px, and at that
+size the silhouettes stop being distinguishable and only the colour survives,
+which is an expensive way to draw a dot. The Crowd Favourite ballot has none
+either, and that one is structural rather than aesthetic — `Candidate`
+carries no author at all, so there is nothing to seed a face from until the
+votes are in.
 
 The tokens all live in `src/index.css`. `--tilt` is the one that needs
 explaining: Word Wall's cards sit a couple of degrees off-square, and a

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { GameHostProps } from "../../../engine/client";
-import { Button, Eyebrow } from "../../../src/components/ui";
+import { Button, Eyebrow, PlayerBlob } from "../../../src/components/ui";
 import type { HotPotatoView } from "../shared";
 import { SaidList } from "./SaidList";
 import { Standings } from "./Standings";
@@ -78,7 +78,14 @@ function Board({ view, send, onEndGame }: GameHostProps<HotPotatoView>) {
       return (
         <>
           <div className="flex flex-1 flex-col items-center justify-center gap-6">
-            <Eyebrow tracking="wider">{view.pending.name} said</Eyebrow>
+            {/*
+              The whole room is deciding whether to challenge one specific
+              person, so that person gets a face rather than a name in 12px.
+            */}
+            <div className="flex items-center gap-3">
+              <PlayerBlob seed={view.pending.playerId} size="lg" />
+              <Eyebrow tracking="wider">{view.pending.name} said</Eyebrow>
+            </div>
             <p className="text-6xl font-black text-balance">{view.pending.text}</p>
             <Eyebrow tracking="wider" tone="punch">
               Challenge it now, or it counts

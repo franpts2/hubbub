@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-import { Eyebrow } from "../../../src/components/ui";
+import { Eyebrow, PlayerBlob } from "../../../src/components/ui";
 import type { Answer } from "../shared";
 
 /**
@@ -29,9 +29,10 @@ export function AnswerCard({ answer, index }: { answer: Answer; index: number })
       <blockquote className="text-2xl font-black text-balance text-cream sm:text-3xl">
         {answer.text}
       </blockquote>
-      <Eyebrow as="figcaption" tone="punch" className="mt-3">
-        {answer.name}
-      </Eyebrow>
+      <figcaption className="mt-3 flex items-center gap-2">
+        <PlayerBlob seed={answer.playerId} />
+        <Eyebrow tone="punch">{answer.name}</Eyebrow>
+      </figcaption>
     </figure>
   );
 }

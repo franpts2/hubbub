@@ -46,6 +46,17 @@ export interface Candidate {
 /** An answer once voting is over and authorship is safe to reveal. */
 export interface Result {
   id: string;
+  /**
+   * Who wrote it. Absent from `Candidate` above and present here, which is
+   * the whole anonymity boundary of this game in one field: during voting
+   * nobody may be able to work out an author, and once the votes are in it
+   * is the point of the screen.
+   *
+   * Carried as well as `name` because the name is for reading and the id is
+   * for keying, and a reconnecting phone may change the former while keeping
+   * the latter. The blob beside the answer is seeded on this.
+   */
+  playerId: string;
   text: string;
   name: string;
   votes: number;
