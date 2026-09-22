@@ -1,12 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import {
-  Button,
-  CountdownChip,
-  TextField,
-  eyebrowClass,
-} from "../../../src/components/ui";
-import { useCountdown } from "../../../src/hooks/useCountdown";
+import { Button, Countdown, TextField, eyebrowClass } from "../../../src/components/ui";
 import { MAX_ANSWER_LENGTH, normalizeAnswer } from "../shared";
 
 /**
@@ -27,7 +21,6 @@ export function AnswerForm({
   onAnswer: (text: string) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const remaining = useCountdown(deadline);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -44,7 +37,7 @@ export function AnswerForm({
           <p className={eyebrowClass({ tracking: "widest" }, "text-zap")}>Your turn</p>
           <h1 className="mt-2 text-2xl font-black text-balance">{category}</h1>
         </div>
-        {remaining !== null ? <CountdownChip seconds={remaining} size="sm" /> : null}
+        <Countdown deadline={deadline} size="sm" />
       </div>
 
       <form onSubmit={submit} className="flex flex-1 flex-col gap-4">

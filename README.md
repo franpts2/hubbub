@@ -336,9 +336,12 @@ The build is not optional here. `npm run build` writes a redirect config into `.
 | ----------------------- | ------------------------------------------------------------ |
 | `npm run dev`           | Dev server with HMR and a local Durable Object runtime       |
 | `npm run dev:lan`       | Same, exposed on your local network for phones               |
-| `npm test`              | Run the test suite once                                      |
+| `npm test`              | Run both test suites once                                    |
+| `npm run test:unit`     | Just the Node suite: the rules, in a third of a second       |
+| `npm run test:workers`  | Just the workerd suite: the Durable Object and the API       |
 | `npm run test:watch`    | Re-run affected tests as you edit                            |
 | `npm run test:coverage` | Run with coverage, enforcing the thresholds                  |
+| `npm run lint`          | ESLint: the hooks rules, mostly                              |
 | `npm run build`         | Production build, then a type check                          |
 | `npm run preview`       | Build, then serve the output as it will be deployed          |
 | `npm run deploy`        | Build and deploy to Cloudflare                               |
@@ -407,6 +410,7 @@ One constraint worth recording, since it shapes the config: the Workers plugin i
 | -------------- | ------------------------------- |
 | Binding types  | `npm run typegen`               |
 | Format         | `npx prettier --check .`        |
+| Lint           | `npx eslint . --max-warnings 0` |
 | Types          | `npx tsc --noEmit`              |
 | Tests          | `npm run test:coverage`         |
 | Build          | `npx vite build`                |
@@ -415,6 +419,7 @@ One constraint worth recording, since it shapes the config: the Workers plugin i
 Three details that are load-bearing:
 
 - **Typegen runs first.** `worker-configuration.d.ts` is generated from `wrangler.jsonc` and is not committed, but `tsconfig.json` references it — so nothing type-aware can run before it exists.
+- **Lint is a separate step from types because it catches a different class of thing.** `tsc` already runs with `strict`, `noUnusedLocals` and `noUnusedParameters`, so ESLint is not here for unused variables. It is here for the React rules a type checker cannot see — stale dependency lists, `setState` in an effect body, hooks called conditionally. It found three real instances of the last kind on its first run, all since fixed rather than silenced.
 - **Steps use `if: ${{ !cancelled() }}`,** so one failure does not hide the others. Seeing every problem at once beats discovering them one push at a time.
 - **The dry-run deploy needs no credentials** and catches config-only breakage — a bad binding, a broken migration — that a build cannot see.
 

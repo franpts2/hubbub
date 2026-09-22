@@ -1,6 +1,5 @@
 import type { RoomStatus } from "../../../shared/protocol";
-import { CountdownChip, Logo } from "../../components/ui";
-import { useCountdown } from "../../hooks/useCountdown";
+import { Countdown, Logo } from "../../components/ui";
 import { RoomCodeChip } from "./RoomCodeChip";
 
 /**
@@ -22,15 +21,13 @@ export function HostHeader({
   status: RoomStatus;
   deadline: number | null;
 }) {
-  const remaining = useCountdown(deadline);
-
   return (
     <header className="flex items-center justify-between">
       <Logo className="text-2xl" />
       {status === "playing" ? (
         <div className="flex items-center gap-6">
           <RoomCodeChip code={code} />
-          {remaining !== null ? <CountdownChip seconds={remaining} /> : null}
+          <Countdown deadline={deadline} />
         </div>
       ) : null}
     </header>

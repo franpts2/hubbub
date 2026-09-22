@@ -53,6 +53,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: npx prettier --check .
 
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: npx eslint . --max-warnings 0
+
       - name: Types
         if: ${{ !cancelled() }}
         run: npx tsc --noEmit

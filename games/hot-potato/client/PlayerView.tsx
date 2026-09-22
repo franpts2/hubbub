@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { GamePlayerProps } from "../../../engine/client";
-import { Button, CountdownChip, Eyebrow } from "../../../src/components/ui";
-import { useCountdown } from "../../../src/hooks/useCountdown";
+import { Button, Countdown, Eyebrow } from "../../../src/components/ui";
 import { isYourTurn, type HotPotatoView, type VotingView } from "../shared";
 import { AnswerForm } from "./AnswerForm";
 import { SaidList } from "./SaidList";
@@ -185,15 +184,9 @@ function Watching({
   deadline: number | null;
   children: ReactNode;
 }) {
-  const remaining = useCountdown(deadline);
-
   return (
     <div className="flex flex-1 flex-col justify-center gap-5">
-      {remaining !== null ? (
-        <div className="flex justify-center">
-          <CountdownChip seconds={remaining} size="sm" />
-        </div>
-      ) : null}
+      <Countdown deadline={deadline} size="sm" className="self-center" />
       {children}
     </div>
   );

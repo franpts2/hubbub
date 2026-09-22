@@ -1,5 +1,4 @@
-import { CountdownChip, eyebrowClass } from "../../../src/components/ui";
-import { useCountdown } from "../../../src/hooks/useCountdown";
+import { Countdown, eyebrowClass } from "../../../src/components/ui";
 import type { VotingView } from "../shared";
 
 /**
@@ -19,15 +18,13 @@ export function Ballot({
   deadline: number | null;
   onVote: (candidateId: string) => void;
 }) {
-  const remaining = useCountdown(deadline);
-
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div className="flex items-center justify-between gap-4">
         <p className={eyebrowClass({ tracking: "widest" })}>
           {view.yourVote === null ? "Pick your favourite" : "Change your mind?"}
         </p>
-        {remaining !== null ? <CountdownChip seconds={remaining} size="sm" /> : null}
+        <Countdown deadline={deadline} size="sm" />
       </div>
 
       <ul className="flex flex-1 flex-col gap-3">

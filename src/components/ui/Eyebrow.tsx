@@ -59,7 +59,13 @@ export interface EyebrowStyle {
  *
  * `extra` is for utilities the variants do not set — layout, decoration — so
  * it never conflicts with what this builds.
+ *
+ * Kept beside the component on purpose: the two share the variant tables
+ * above, and splitting them to satisfy Fast Refresh would mean either
+ * exporting those tables or maintaining them twice. The cost is that editing
+ * this one file full-reloads instead of hot-reloading.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function eyebrowClass(
   { size = "sm", tone = "muted", tracking = "wide", weight = "black" }: EyebrowStyle = {},
   extra = "",

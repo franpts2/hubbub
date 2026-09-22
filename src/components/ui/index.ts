@@ -1,8 +1,15 @@
-export { Button, type ButtonVariant } from "./Button";
+/**
+ * Components only. The style types beside them (`ButtonVariant`,
+ * `CountdownSize`, `EyebrowStyle`) stay exported from their own modules for
+ * anyone who needs to name one, but re-exporting them here just widened the
+ * surface — nothing imported them through the barrel.
+ */
+
+export { Button } from "./Button";
 export { ConnectionBadge } from "./ConnectionBadge";
-export { CountdownChip, type CountdownSize } from "./CountdownChip";
+export { Countdown } from "./Countdown";
 export { ErrorNote } from "./ErrorNote";
-export { Eyebrow, eyebrowClass, type EyebrowStyle } from "./Eyebrow";
+export { Eyebrow, eyebrowClass } from "./Eyebrow";
 export { Logo } from "./Logo";
 export { Panel } from "./Panel";
 export { Screen } from "./Screen";

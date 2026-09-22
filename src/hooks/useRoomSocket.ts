@@ -39,7 +39,7 @@ function backoff(attempt: number): number {
  * Pass `null` to stay disconnected (for example, before a player picks a name).
  */
 export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
-  const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [socketStatus, setStatus] = useState<ConnectionStatus>("connecting");
   const [state, setState] = useState<RoomState | null>(null);
   const [you, setYou] = useState<Identity | null>(null);
   const [error, setError] = useState<ConnectionError | null>(null);
@@ -51,14 +51,22 @@ export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
   // every render of the parent.
   const key = options === null ? null : JSON.stringify(options);
 
+  // Depending on `key` rather than `options` is the entire point: a caller
+  // that rebuilds an identical object every render would otherwise tear the
+  // socket down and open a new one each time. The rule cannot see that `key`
+  // is a complete description of `options`, so it is told to allow it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const settings = useMemo(() => options, [key]);
 
+  /**
+   * Having nothing to connect to is not a state the socket ever reaches, so
+   * it is derived rather than written into state from the effect below. That
+   * keeps `setStatus` describing a socket that actually exists.
+   */
+  const status: ConnectionStatus = settings === null ? "closed" : socketStatus;
+
   useEffect(() => {
-    if (settings === null) {
-      setStatus("closed");
-      return;
-    }
+    if (settings === null) return;
 
     let disposed = false;
     let giveUp = false;

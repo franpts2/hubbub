@@ -16,7 +16,17 @@ interface GameViewProps<View> {
   /** Produced by this game's server-side `view`, forwarded untouched. */
   view: View;
   players: readonly PublicPlayer[];
-  /** Already rendered as a countdown by the platform; here for game logic. */
+  /**
+   * Epoch ms at which whatever is running now runs out, or null when nothing
+   * is timed. Display only — the server ends the phase itself.
+   *
+   * Who draws it differs by screen, which is worth knowing before you reach
+   * for it. The host shell puts it in its header, because it has a permanent
+   * bar to hang it in and the timer means the same thing all game. A phone
+   * has no such bar — each phase fills the screen — so a `PlayerView` places
+   * its own `<Countdown deadline={deadline} />` beside whatever it is asking
+   * for: the prompt, the ballot label, or centred alone while you watch.
+   */
   deadline: number | null;
   /** Send a command this game defined. */
   send: (command: unknown) => void;
@@ -53,4 +63,5 @@ export interface GameClient<View> {
  * forwards an opaque view without reading it. Each game's components are
  * typed against their own view, and this boundary is where that is dropped.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyGameClient = GameClient<any>;

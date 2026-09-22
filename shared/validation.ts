@@ -19,10 +19,15 @@ import {
 
 /** Strips control characters and collapses runs of whitespace. */
 function clean(input: string): string {
-  return input
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return (
+    input
+      // Matching control characters is the entire job here, so the rule that
+      // warns about them in a pattern has nothing useful to say.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 }
 
 /** Cleans free text and rejects it if nothing survives. */

@@ -149,5 +149,10 @@ export interface GameDefinition<State, Command> {
  * opaquely and forwards commands without inspecting either, so it genuinely
  * cannot name these types. Inside a game module everything stays fully typed,
  * and this is the single boundary where that is given up.
+ *
+ * `unknown` cannot stand in: a `GameDefinition<unknown, unknown>` will not
+ * accept a `GameDefinition<WordWallState, WordWallCommand>`, because the
+ * state and command appear in parameter position.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyGame = GameDefinition<any, any>;

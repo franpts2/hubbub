@@ -1,12 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import {
-  Button,
-  CountdownChip,
-  TextField,
-  eyebrowClass,
-} from "../../../src/components/ui";
-import { useCountdown } from "../../../src/hooks/useCountdown";
+import { Button, Countdown, TextField, eyebrowClass } from "../../../src/components/ui";
 import {
   MAX_ANSWER_LENGTH,
   hasSubmitted,
@@ -26,7 +20,6 @@ export function AnswerForm({
   onSubmit: (text: string) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const remaining = useCountdown(deadline);
   // The server is the source of truth for whether our answer landed, so a
   // submission lost to a dropped socket does not look like a success.
   const submitted = hasSubmitted(view, youId);
@@ -44,7 +37,7 @@ export function AnswerForm({
     <div className="flex flex-1 flex-col gap-5">
       <div className="flex items-start justify-between gap-4">
         <h1 className="flex-1 text-2xl font-black text-balance">{view.prompt}</h1>
-        {remaining !== null ? <CountdownChip seconds={remaining} size="sm" /> : null}
+        <Countdown deadline={deadline} size="sm" />
       </div>
 
       <form onSubmit={submit} className="flex flex-1 flex-col gap-4">
