@@ -6,7 +6,7 @@
  * half of the engine to name a game.
  */
 
-export const GAME_IDS = ["word-wall"] as const;
+export const GAME_IDS = ["word-wall", "crowd-favourite"] as const;
 
 export type GameId = (typeof GAME_IDS)[number];
 

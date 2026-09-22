@@ -17,7 +17,7 @@ Hubbub is a party game you play in the same room. One screen — a TV or a lapto
 
 The whole thing runs on a single Cloudflare Worker. Each room is one Durable Object, which makes the room itself the authority on its own state: there is no shared database to contend on, no cross-instance coordination, and no polling. Rooms hibernate while nothing is happening, so an idle lobby costs nothing to keep open.
 
-> **Status:** early. The first minigame (Word Wall) is complete and playable end to end. The room machinery is separated from it behind a game engine, so a second game plugs in without touching the platform — but only one game exists so far, which means the engine's seams are still unproven. See [Roadmap](#roadmap).
+> **Status:** early, but no longer single-game. Two minigames — Word Wall and Crowd Favourite — are playable end to end, chosen by the host before the room opens. The room machinery is separated from both behind a game engine, and the second game is what tested that separation: it needed two additions to the engine and nothing else. See [Platform vs. game](#architecture) for what those were and [Roadmap](#roadmap) for what is next.
 
 ## Key Features
 
@@ -32,7 +32,9 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
 
 ### Host Screen
 
+- Pick which game the room will play before opening it
 - Live lobby showing who has joined and who is still connecting
+- Start button that says how many more players the chosen game needs
 - Shared round view: the prompt, the countdown, and answers as they land
 - Host controls to start a round, end one early, or return to the lobby
 - Host authority is token-backed, so a spectator cannot drive the game
@@ -59,6 +61,18 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
 - Answers are hidden from other players until the round ends, so no copying
 - 15 prompts, drawn without immediate repeats
 - The round ends as soon as everyone has answered, or when the 60-second timer runs out
+- Plays with a single player, since nobody is competing
+
+### Crowd Favourite (Minigame 2)
+
+- Three rounds of write-then-vote, with a running score
+- Everyone answers one prompt, then votes for their favourite answer
+- Answers are shown anonymously, and the ballot is shuffled so submission order gives nothing away
+- Your phone knows which answer is yours and will not let you vote for it; the server refuses it too
+- 100 points per vote received, carried across all three rounds
+- Needs three players, and the lobby says so until it has them
+- Each phase ends early once everyone is done, or on its own timer (60s to write, 45s to vote)
+- 20 prompts, none repeated within a single game
 
 ## Technical Implementation
 
@@ -96,9 +110,11 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
                           ▼
           ┌───────────────────────────────┐
           │   the room's game             │
-          │   (games/word-wall)           │
+          │   word-wall | crowd-favourite │
           └───────────────────────────────┘
 ```
+
+A room is bound to one game when it is created and keeps it for life, so a game cannot be swapped out from under the phones already playing it.
 
 One Worker serves the React app, the API and the WebSocket endpoint, so everything is same-origin and there is no CORS to configure. `run_worker_first` is scoped to `/api/*`, leaving static assets to be served directly by Cloudflare's asset layer.
 
@@ -112,16 +128,25 @@ The split runs through the whole codebase. The platform owns the room: codes, se
 
 A game is one object on each side of the wire:
 
-| Provides         | For    | Responsibility                                                                        |
-| ---------------- | ------ | ------------------------------------------------------------------------------------- |
-| `GameDefinition` | server | `create`, `parseCommand`, `apply`, `deadline`, `onDeadline`, `onSeatsChanged`, `view` |
-| `GameClient`     | client | a `HostView` for the shared screen and a `PlayerView` for the phone                   |
+| Provides         | For    | Responsibility                                                                                      |
+| ---------------- | ------ | --------------------------------------------------------------------------------------------------- |
+| `GameDefinition` | server | `minPlayers`, `create`, `parseCommand`, `apply`, `deadline`, `onDeadline`, `onSeatsChanged`, `view` |
+| `GameClient`     | client | a `HostView` for the shared screen, a `PlayerView` for the phone, plus a name, tagline and minimum  |
 
 A game never touches a socket, writes to storage or schedules an alarm. It is handed a snapshot of who is at the table, mutates its own state, and returns `changed` / `ignored` / `rejected`; the platform decides what that costs in persistence and fan-out. Timers work the same way: a game publishes a timestamp from `deadline(state)` and the platform multiplexes it against room expiry in the DO's one alarm slot.
 
 The two registries (`games/server.ts`, `games/client.ts`) are deliberately separate files. A single registry exporting both halves would pull prompt lists and round logic into the browser bundle, and would make importing server code from a component an easy accident. As built, the Worker bundle contains no React and the client bundle contains no game rules.
 
-> The interface was derived from exactly one game, so it is a hypothesis rather than a proven abstraction. It was kept as small as Word Wall genuinely requires — no scoring, teams, private per-player state or cross-round bookkeeping — because inventing those would fit an imaginary second game instead of a real one. Expect it to change when the second game lands.
+**What the second game did to the engine**
+
+The interface was originally derived from Word Wall alone and kept as small as that one game required — no scoring, no teams, no private per-player state, no cross-round bookkeeping — on the grounds that inventing those would fit an imaginary game rather than a real one. Crowd Favourite was the test of that bet. It needed two changes:
+
+| Change                                 | Why it could not be faked in the game                                                                                                                                                                                                                                                   |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `view(state, viewer, ctx)`, was `role` | An anonymous vote has to tell each player privately which answer is theirs. A phone cannot work that out for itself, and nobody else may be told, so one payload per role could not express it. The room now serialises one snapshot per connection.                                    |
+| `minPlayers`                           | A voting game does not work with one player, and the room is the only thing that counts seats. The number is the game's to declare and the platform's to enforce — the lobby uses it for the button label, and `start_game` refuses below it regardless of what the button was showing. |
+
+Everything else it wanted — three phases, cumulative scoring, shuffling, opaque answer ids, a skip-the-vote path when too few answers arrive — it expressed in its own state with no help from the engine. Two changes for a game deliberately chosen to be unlike the first is the evidence that the opaque-state seam sits in the right place. Per-connection serialisation costs at most a dozen small payloads per broadcast at the 12-player cap, which is a fair price for being able to keep a secret per person.
 
 **Design decisions worth knowing**
 
@@ -160,6 +185,8 @@ A snapshot carries the room (`code`, `gameId`, `status`, `players`, `deadline`) 
 
 Hidden information is withheld server-side, in the game's `view`, never in the UI. Word Wall uses this to keep answers from players during its `prompt` phase, so a phone cannot be used to read everyone else's answer before writing its own — while still sending the list of who has answered, so both screens can show progress. The host screen receives the answers because it is the thing everyone is already looking at.
 
+Because `view` is built per viewer rather than per role, a game can also withhold information from players _individually_. Crowd Favourite needs this in both directions at once: everybody sees the same anonymous list of answers, each phone is privately told which entry is its own, and each phone is told what it voted for and nothing about anyone else's vote. Authorship is a mapping, so keeping it is a matter of publishing nothing that joins the two halves — the candidate list carries no identity, and the standings carry no reference to a candidate. Authors are attached only once voting has closed.
+
 **HTTP API**
 
 | Method | Path                  | Purpose                                                                                                                |
@@ -187,6 +214,20 @@ Word Wall's own limits, in `games/word-wall/shared.ts`:
 | ------------------- | ----- | -------------------------------------------- |
 | `ROUND_SECONDS`     | 60    | Round length before the server force-ends it |
 | `MAX_ANSWER_LENGTH` | 80    | Characters in an answer                      |
+| `MIN_PLAYERS`       | 1     | Nobody competes, so one player is a game     |
+
+Crowd Favourite's, in `games/crowd-favourite/shared.ts`:
+
+| Constant            | Value | Meaning                                     |
+| ------------------- | ----- | ------------------------------------------- |
+| `WRITING_SECONDS`   | 60    | Time to answer the prompt                   |
+| `VOTING_SECONDS`    | 45    | Time to pick a favourite                    |
+| `TOTAL_ROUNDS`      | 3     | Rounds before the final standings           |
+| `POINTS_PER_VOTE`   | 100   | Awarded to an answer's author, per vote     |
+| `MAX_ANSWER_LENGTH` | 80    | Characters in an answer                     |
+| `MIN_PLAYERS`       | 3     | Fewest players a vote is worth running with |
+
+Each `MIN_PLAYERS` is imported by both halves of its game — the server definition that enforces it and the client that explains it — so the number the lobby shows and the number the server checks cannot drift apart.
 
 ## Setup and Installation
 
@@ -267,18 +308,21 @@ Tests sit next to the code they cover, as `*.test.ts`. They run in plain Node ra
 
 What is covered, at 100% of statements, branches, functions and lines:
 
-| Area                                    | What the tests pin down                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `games/word-wall/server.ts`             | the game's rules: submissions, overwrites, early end, prompts, deadline, the withheld view |
-| `worker/room/join.ts`                   | the security boundary: host token, name collisions, capacity, seat reclamation             |
-| `worker/room/projection.ts`             | that a role only ever receives what its role is allowed to see                             |
-| `worker/room/commands.ts`               | platform-vs-game routing and the outcome mapping                                           |
-| `worker/room/{state,alarms}.ts`         | presence, ghost pruning, and the alarm multiplexing                                        |
-| `shared/validation.ts`, `engine/ids.ts` | everything that narrows untrusted input                                                    |
+| Area                                    | What the tests pin down                                                                       |
+| --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `games/word-wall/server.ts`             | the game's rules: submissions, overwrites, early end, prompts, deadline, the withheld view    |
+| `games/crowd-favourite/server.ts`       | voting rules, anonymity, shuffling, per-round scoring, and the phase transitions between them |
+| `worker/room/join.ts`                   | the security boundary: host token, name collisions, capacity, seat reclamation                |
+| `worker/room/projection.ts`             | that a viewer only ever receives what that viewer is allowed to see                           |
+| `worker/room/commands.ts`               | platform-vs-game routing, the start-gate, and the outcome mapping                             |
+| `worker/room/{state,alarms}.ts`         | presence, ghost pruning, and the alarm multiplexing                                           |
+| `shared/validation.ts`, `engine/ids.ts` | everything that narrows untrusted input                                                       |
 
-Two choices worth knowing:
+Three choices worth knowing:
 
-**The platform is tested against a fake game, not Word Wall.** `worker/room/testing.ts` defines a stand-in with different phases, commands and view shape. Testing the room with the only real game would prove the room works with _that_ game, and would let a Word Wall assumption leak back into `worker/room/` unnoticed. The fake is what actually holds the abstraction honest.
+**The platform is tested against a fake game, not a real one.** `worker/room/testing.ts` defines a stand-in with different phases, commands and view shape. Testing the room with a real game would prove the room works with _that_ game, and would let one game's assumptions leak back into `worker/room/` unnoticed. The fake is what actually holds the abstraction honest.
+
+**The secret-keeping rules are tested as invariants, not as snapshots.** Asserting an expected payload would pass just as happily if a later change added an author field to it. Instead the tests assert the exact key sets of a ballot entry and of a standings row, that two players receive different `yourCandidateId`s, and that a player's own answer never appears in anyone else's view. Each of these was checked by breaking it on purpose: allowing a self-vote, publishing the whole vote map, attaching names to candidates, skipping the shuffle and forgetting the used-prompt list all fail the suite.
 
 **Coverage is an allow-list.** `vitest.config.ts` names the modules that this suite can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Not covered, and honest about it: the Durable Object itself, sockets, storage and the React layer. The first group needs `@cloudflare/vitest-pool-workers`; the second needs jsdom.
 
@@ -358,15 +402,21 @@ hubbub/
 │   ├── ids.ts                 #   the set of known game ids
 │   ├── server.ts              #   GameDefinition: create/apply/deadline/view
 │   ├── client.ts              #   GameClient: HostView + PlayerView
-│   └── testing.ts             #   seat/actor helpers for any game's tests
+│   └── testing.ts             #   seat/actor/viewer helpers for any game's tests
 ├── games/
 │   ├── server.ts              # Registry of server halves (worker bundle)
 │   ├── client.ts              # Registry of client halves (browser bundle)
-│   └── word-wall/             # One self-contained game
-│       ├── shared.ts          #   its view, commands and limits
+│   ├── word-wall/             # One self-contained game
+│   │   ├── shared.ts          #   its view, commands and limits
+│   │   ├── prompts.ts         #   its prompt list
+│   │   ├── server.ts          #   its rules
+│   │   └── client/            #   its two screens, and the pieces they use
+│   └── crowd-favourite/       # Same shape, nothing shared with the other game
+│       ├── shared.ts          #   a view type per phase, so a screen cannot
+│       │                      #   read a field that phase does not have
 │       ├── prompts.ts         #   its prompt list
-│       ├── server.ts          #   its rules
-│       └── client/            #   its two screens, and the pieces they use
+│       ├── server.ts          #   voting, anonymity and scoring
+│       └── client/            #   write form, ballot, results, scoreboard
 ├── worker/
 │   ├── index.ts               # Worker entry: asset serving + API routing
 │   ├── codes.ts               # CSPRNG room codes and host tokens
@@ -379,7 +429,7 @@ hubbub/
 │       ├── credentials.ts     #   constant-time token comparison
 │       ├── join.ts            #   who is connecting: the security boundary
 │       ├── commands.ts        #   routes a message to the platform or the game
-│       ├── projection.ts      #   builds the snapshot for one role
+│       ├── projection.ts      #   builds the snapshot for one viewer
 │       ├── alarms.ts          #   multiplexes game deadline vs. room expiry
 │       └── testing.ts         #   a fake game, so the room is tested game-agnostically
 ├── src/
@@ -387,7 +437,7 @@ hubbub/
 │   ├── App.tsx                # Route switch
 │   ├── index.css              # Tailwind theme and design tokens
 │   ├── screens/
-│   │   ├── home/              #   host a room, or join one by code
+│   │   ├── home/              #   pick a game and host, or join one by code
 │   │   ├── host/              #   the shared screen: chrome, lobby, handover
 │   │   └── player/            #   the phone: name form, waiting room, handover
 │   ├── components/
@@ -420,8 +470,9 @@ Tests live beside the code as `*.test.ts` and are omitted above.
 1. Add its id to `engine/ids.ts`.
 2. Write `games/<id>/shared.ts`, a `GameDefinition` and a `GameClient`.
 3. Register it in `games/server.ts` and `games/client.ts`.
+4. Add its server-side files to the coverage allow-list in `vitest.config.ts`.
 
-Nothing in `shared/`, `worker/` or `src/` changes.
+Nothing in `shared/`, `worker/` or `src/` changes, and the game picker on the home screen fills itself in from the client registry. Adding Crowd Favourite touched the platform only to make the two engine changes described above — both additions, neither specific to it.
 
 ## Roadmap
 
@@ -431,13 +482,15 @@ Nothing in `shared/`, `worker/` or `src/` changes.
 - [x] Game engine: the room machinery separated from any one game's rules
 - [x] Tests over the rules, the security boundary and the platform/game seam
 - [x] CI: format, types, tests with coverage thresholds, build and a dry-run deploy
-- [ ] A second minigame, which is the first real test of the engine's seams
-- [ ] Scoring and voting on answers
+- [x] Crowd Favourite — the second minigame, and the first real test of the engine's seams
+- [x] Voting, anonymity and scoring across rounds
+- [x] A game picker, so the host chooses what the room will play
 - [ ] Round history and an end-of-game summary
 - [ ] Sound and animation on the host screen
 - [ ] Reconnect as host after closing the TV tab
+- [ ] A third game, ideally one that needs turns rather than simultaneous play
 
-The engine exists, but it has only ever been asked to run one game, so its seams are a hypothesis. It was kept minimal on purpose — see [Platform vs. game](#architecture) — and the second minigame is expected to change it rather than slot neatly into it.
+The engine has now run two games that work differently, which moved its seams from a hypothesis to something with evidence behind it — see [What the second game did to the engine](#architecture) for the two changes that were needed and the longer list that was not. The next useful test is a game with turn order, since both existing games are simultaneous and nothing in the engine has yet had to express "it is your move".
 
 ## Author
 

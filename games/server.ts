@@ -11,10 +11,12 @@
 
 import type { GameId } from "../engine/ids";
 import type { AnyGame } from "../engine/server";
+import { crowdFavourite } from "./crowd-favourite/server";
 import { wordWall } from "./word-wall/server";
 
 const SERVER_GAMES: Record<GameId, AnyGame> = {
   "word-wall": wordWall,
+  "crowd-favourite": crowdFavourite,
 };
 
 export function serverGame(id: GameId): AnyGame {

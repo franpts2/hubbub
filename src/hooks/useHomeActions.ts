@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 
+import type { GameId } from "../../engine/ids";
 import { CODE_LENGTH } from "../../shared/protocol";
 import { normalizeCode } from "../../shared/validation";
 import { createRoom, roomExists } from "../lib/api";
@@ -12,7 +13,7 @@ export interface HomeActions {
   /** Which action is in flight, if any. Only one may run at a time. */
   pending: HomeAction | null;
   error: string | null;
-  hostRoom: () => Promise<void>;
+  hostRoom: (gameId: GameId) => Promise<void>;
   joinRoom: (rawCode: string) => Promise<void>;
 }
 
@@ -27,20 +28,23 @@ export function useHomeActions(navigate: Navigate): HomeActions {
   const [pending, setPending] = useState<HomeAction | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const hostRoom = useCallback(async () => {
-    setError(null);
-    setPending("host");
-    try {
-      const room = await createRoom();
-      saveHostToken(room.code, room.hostToken);
-      // Deliberately stays pending: we are navigating away, and re-enabling
-      // the button first would invite a second room being created.
-      navigate({ name: "host", code: room.code });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Something went wrong.");
-      setPending(null);
-    }
-  }, [navigate]);
+  const hostRoom = useCallback(
+    async (gameId: GameId) => {
+      setError(null);
+      setPending("host");
+      try {
+        const room = await createRoom(gameId);
+        saveHostToken(room.code, room.hostToken);
+        // Deliberately stays pending: we are navigating away, and re-enabling
+        // the button first would invite a second room being created.
+        navigate({ name: "host", code: room.code });
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "Something went wrong.");
+        setPending(null);
+      }
+    },
+    [navigate],
+  );
 
   const joinRoom = useCallback(
     async (rawCode: string) => {
