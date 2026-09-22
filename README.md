@@ -352,9 +352,18 @@ The build is not optional here. `npm run build` writes a redirect config into `.
 npm test
 ```
 
-Tests sit next to the code they cover, as `*.test.ts`. They run in plain Node rather than workerd, which is a deliberate consequence of the architecture: pushing sockets, storage and alarms out into `Room.ts` left the decision-making underneath as functions over plain objects, so they need no Workers runtime to exercise.
+Tests sit next to the code they cover, and there are two suites because the code divides in two.
 
-What is covered, at 100% of statements, branches, functions and lines:
+Most of the repo is decision-making with its effects pushed out — functions over plain objects that import nothing from `cloudflare:workers`. Those are `*.test.ts` and run in plain Node, which is a deliberate consequence of the architecture: moving sockets, storage and alarms out into `Room.ts` is what left the rules underneath testable without a runtime. All 269 of them finish in about a third of a second.
+
+`Room.ts` is the other half, and it is the effects themselves: hibernation, the socket set, attachments that outlive memory, the single alarm slot. Those are `*.workers.test.ts` and run on real workerd under `@cloudflare/vitest-plugin`, against the same `wrangler.jsonc` the app deploys with.
+
+```bash
+npm run test:unit      # the fast half
+npm run test:workers   # the runtime half
+```
+
+What is covered, at 97% of statements and 96% of branches:
 
 | Area                                    | What the tests pin down                                                                       |
 | --------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -366,8 +375,10 @@ What is covered, at 100% of statements, branches, functions and lines:
 | `worker/room/commands.ts`               | platform-vs-game routing, the start-gate, and the outcome mapping                             |
 | `worker/room/{state,alarms}.ts`         | presence, ghost pruning, and the alarm multiplexing                                           |
 | `shared/validation.ts`, `engine/ids.ts` | everything that narrows untrusted input                                                       |
+| `worker/room/Room.ts`                   | hibernation, fan-out, the heartbeat, disconnects, and both alarm paths                        |
+| `worker/index.ts`                       | the API contract the browser reads: codes, statuses, upgrades                                 |
 
-Three choices worth knowing:
+Four choices worth knowing:
 
 **The platform is tested against a fake game, not a real one.** `worker/room/testing.ts` defines a stand-in with different phases, commands and view shape. Testing the room with a real game would prove the room works with _that_ game, and would let one game's assumptions leak back into `worker/room/` unnoticed. The fake is what actually holds the abstraction honest.
 
@@ -380,7 +391,13 @@ Two of those runs paid for the exercise:
 - In Crowd Favourite, the eligibility filter in `everyoneVoted` turned out to be unreachable — voting is only entered with two or more entries and nobody writes twice, so no input could tell it apart from its own absence. It was deleted and replaced with a test asserting the invariant that made it redundant.
 - In Hot Potato, the suite was at 100% on every metric and still could not tell `scores[id] = (scores[id] ?? 0) + POINTS_PER_ANSWER` from `scores[id] = POINTS_PER_ANSWER`, because no test had the same player answer twice in one round. Full coverage, real bug. A test for a second accepted answer closed it.
 
-**Coverage is an allow-list.** `vitest.config.ts` names the modules that this suite can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Not covered, and honest about it: the Durable Object itself, sockets, storage and the React layer. The first group needs `@cloudflare/vitest-pool-workers`; the second needs jsdom.
+**The Durable Object is tested on workerd, not against a fake of it.** Writing a stand-in for `DurableObjectState` would have been faster and would have tested the wrong thing: `Room.ts` is almost entirely runtime behaviour, so a fake would assert our model of hibernation rather than hibernation. The model is the part most likely to be wrong. So the suite evicts the object mid-game with `evictDurableObject` and checks that a phone connected before the eviction is still recognised afterwards — which only works because the attachment lives on the socket rather than in an instance field.
+
+These were mutation-checked too. Removing `attach()` fails ten tests; making the constructor skip its reload from storage fails five; deleting the superseded-socket guard in `handleDisconnect` fails exactly the one test written for it; and sending every socket the host's snapshot instead of its own fails only the per-viewer test. Four lines remain uncovered and are left that way on purpose: an internal-error handler, the 503 after eight consecutive code collisions, `webSocketError`, and one null-coalescing fallback. Each needs a failure that cannot be provoked from outside.
+
+**Coverage is an allow-list.** `vitest.config.ts` names the modules these suites can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Still not covered, and honest about it: the React layer, which needs jsdom and testing-library, and `worker/codes.ts`, where a test would assert the alphabet back at itself.
+
+One constraint worth recording, since it shapes the config: the Workers plugin is pinned to Vitest 4, so the repo is too. Coverage there also has to come from Istanbul rather than V8, because V8 collects through `node:inspector`, which workerd does not implement — with V8 the Workers half of the suite is silently skipped.
 
 ### Continuous Integration
 
@@ -506,10 +523,11 @@ hubbub/
 │       ├── presence.ts        #   connectivity derived from the live socket set
 │       ├── credentials.ts     #   constant-time token comparison
 │       ├── join.ts            #   who is connecting: the security boundary
-│       ├── commands.ts        #   routes a message to the platform or the game
-│       ├── projection.ts      #   builds the snapshot for one viewer
-│       ├── alarms.ts          #   multiplexes game deadline vs. room expiry
-│       └── testing.ts         #   a fake game, so the room is tested game-agnostically
+│       ├── commands.ts           #   routes a message to the platform or the game
+│       ├── projection.ts         #   builds the snapshot for one viewer
+│       ├── alarms.ts             #   multiplexes game deadline vs. room expiry
+│       ├── testing.ts            #   a fake game, so the room is tested game-agnostically
+│       └── testing-socket.ts     #   drives a room over a real socket, for the workerd suite
 ├── src/
 │   ├── main.tsx               # React entry
 │   ├── App.tsx                # Route switch
@@ -536,12 +554,12 @@ hubbub/
 ├── index.html
 ├── wrangler.jsonc             # Worker config, DO binding, asset rules
 ├── vite.config.ts
-├── vitest.config.ts           # Node test env + the coverage allow-list
+├── vitest.config.ts           # Two projects: node rules, workerd effects
 ├── tsconfig.json
 └── .npmrc                     # Pins @cloudflare to the public registry
 ```
 
-Tests live beside the code as `*.test.ts` and are omitted above.
+Tests live beside the code and are omitted above: `*.test.ts` for the rules, which run in Node, and `*.workers.test.ts` for the effects, which run on workerd.
 
 **Adding a game**
 
@@ -566,6 +584,7 @@ Nothing in `shared/`, `worker/` or `src/` changes, and the game picker on the ho
 - [x] CD: a green push to `main` deploys itself
 - [x] Hot Potato — the third minigame, and the first with turn order
 - [x] Elimination, a challenge mechanic, and not stalling on the player whose turn it is
+- [x] The Durable Object under test on real workerd, hibernation included
 - [ ] Round history and an end-of-game summary
 - [ ] Sound and animation on the host screen
 - [ ] Reconnect as host after closing the TV tab

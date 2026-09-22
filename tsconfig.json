@@ -16,7 +16,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["./worker-configuration.d.ts"]
+    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-plugin/types"]
   },
   "include": [
     "worker-configuration.d.ts",
