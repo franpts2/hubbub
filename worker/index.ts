@@ -1,4 +1,4 @@
-import { normalizeCode } from "../shared/protocol";
+import { normalizeCode } from "../shared/validation";
 import { generateCode } from "./codes";
 import { Room } from "./room";
 

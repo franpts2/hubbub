@@ -1,6 +1,10 @@
 /**
  * The wire contract shared by the Worker, the Durable Object and the browser.
  *
+ * This file is declarations only — limits, state shapes, message shapes. The
+ * behaviour that enforces it lives in `validation.ts`, so a change to how
+ * input is sanitised cannot quietly change the contract itself.
+ *
  * Rule of thumb: the server always sends a *full* state snapshot rather than
  * diffs. A room holds at most a dozen short strings, so a snapshot is a couple
  * of kilobytes. This removes an entire category of "my client drifted out of
@@ -125,61 +129,3 @@ export const HEARTBEAT_PONG = "pong";
  * makes "name taken" show up as readable text instead of "connection failed".
  */
 export const CLOSE_REFUSED = 4001;
-
-// ---------------------------------------------------------------------------
-// Validation — used on both sides so the UI can pre-validate what the server
-// will enforce anyway. Never trust the client copy.
-// ---------------------------------------------------------------------------
-
-/** Strips control characters and collapses runs of whitespace. */
-function clean(input: string): string {
-  // eslint-disable-next-line no-control-regex
-  return input.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-export function normalizeName(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const name = clean(input).slice(0, MAX_NAME_LENGTH);
-  return name.length > 0 ? name : null;
-}
-
-export function normalizeAnswer(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const text = clean(input).slice(0, MAX_ANSWER_LENGTH);
-  return text.length > 0 ? text : null;
-}
-
-export function normalizeCode(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const code = input.trim().toUpperCase();
-  if (code.length !== CODE_LENGTH) return null;
-  for (const char of code) {
-    if (!CODE_ALPHABET.includes(char)) return null;
-  }
-  return code;
-}
-
-export function parseClientMessage(raw: string): ClientMessage | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (typeof parsed !== "object" || parsed === null) return null;
-  const message = parsed as { t?: unknown; text?: unknown };
-  switch (message.t) {
-    case "start":
-      return { t: "start" };
-    case "skip":
-      return { t: "skip" };
-    case "reset":
-      return { t: "reset" };
-    case "submit":
-      return typeof message.text === "string"
-        ? { t: "submit", text: message.text }
-        : null;
-    default:
-      return null;
-  }
-}

@@ -8,28 +8,16 @@ import {
   type ClientMessage,
   type ErrorCode,
   type Identity,
-  type Role,
   type RoomState,
   type ServerMessage,
 } from "../../shared/protocol";
-
-export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
-
-export interface ConnectOptions {
-  code: string;
-  role: Role;
-  name?: string;
-  playerId?: string | null;
-  hostToken?: string | null;
-}
-
-export interface RoomConnection {
-  status: ConnectionStatus;
-  state: RoomState | null;
-  you: Identity | null;
-  error: { code: ErrorCode; message: string } | null;
-  send: (message: ClientMessage) => void;
-}
+import type {
+  ConnectOptions,
+  ConnectionError,
+  ConnectionStatus,
+  RoomConnection,
+} from "../lib/connection";
+import { roomSocketUrl } from "../lib/urls";
 
 const HEARTBEAT_MS = 25_000;
 const MAX_BACKOFF_MS = 8_000;
@@ -38,16 +26,6 @@ const MAX_BACKOFF_MS = 8_000;
 function backoff(attempt: number): number {
   const base = Math.min(MAX_BACKOFF_MS, 500 * 2 ** (attempt - 1));
   return base * (0.7 + Math.random() * 0.6);
-}
-
-function socketUrl(options: ConnectOptions): string {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const url = new URL(`${protocol}//${location.host}/api/rooms/${options.code}/ws`);
-  url.searchParams.set("role", options.role);
-  if (options.name) url.searchParams.set("name", options.name);
-  if (options.playerId) url.searchParams.set("playerId", options.playerId);
-  if (options.hostToken) url.searchParams.set("hostToken", options.hostToken);
-  return url.toString();
 }
 
 /**
@@ -64,7 +42,7 @@ export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [state, setState] = useState<RoomState | null>(null);
   const [you, setYou] = useState<Identity | null>(null);
-  const [error, setError] = useState<{ code: ErrorCode; message: string } | null>(null);
+  const [error, setError] = useState<ConnectionError | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const outboxRef = useRef<ClientMessage[]>([]);
@@ -92,7 +70,7 @@ export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
       if (disposed) return;
       setStatus(attempt === 0 ? "connecting" : "reconnecting");
 
-      const ws = new WebSocket(socketUrl(settings));
+      const ws = new WebSocket(roomSocketUrl(settings));
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -196,7 +174,11 @@ export function useRoomSocket(options: ConnectOptions | null): RoomConnection {
     const onPageShow = (event: PageTransitionEvent) => {
       if (!event.persisted || disposed || giveUp) return;
       const ws = socketRef.current;
-      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      if (
+        !ws ||
+        ws.readyState === WebSocket.CLOSED ||
+        ws.readyState === WebSocket.CLOSING
+      ) {
         attempt = 0;
         connect();
       }

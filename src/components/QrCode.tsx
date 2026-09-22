@@ -35,7 +35,11 @@ export function QrCode({ value, size = 220 }: { value: string; size?: number }) 
       style={{ width: size, height: size }}
     >
       {dataUrl ? (
-        <img src={dataUrl} alt={`QR code linking to ${value}`} className="h-full w-full" />
+        <img
+          src={dataUrl}
+          alt={`QR code linking to ${value}`}
+          className="h-full w-full"
+        />
       ) : null}
     </div>
   );
