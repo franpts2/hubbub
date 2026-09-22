@@ -6,3 +6,8 @@ coverage
 .DS_Store
 worker-configuration.d.ts
 *.log
+
+# Agent skills installed by `npx skills add`. Local tooling for whoever is
+# working on the repo, not part of the project.
+.agents/
+skills-lock.json
