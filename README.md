@@ -17,7 +17,7 @@ Hubbub is a party game you play in the same room. One screen — a TV or a lapto
 
 The whole thing runs on a single Cloudflare Worker. Each room is one Durable Object, which makes the room itself the authority on its own state: there is no shared database to contend on, no cross-instance coordination, and no polling. Rooms hibernate while nothing is happening, so an idle lobby costs nothing to keep open.
 
-> **Status:** early, but no longer single-game. Two minigames — Word Wall and Crowd Favourite — are playable end to end, chosen by the host before the room opens. The room machinery is separated from both behind a game engine, and the second game is what tested that separation: it needed two additions to the engine and nothing else. See [Platform vs. game](#architecture) for what those were and [Roadmap](#roadmap) for what is next.
+> **Status:** early, but no longer single-game. Three minigames — Word Wall, Crowd Favourite and Hot Potato — are playable end to end, chosen by the host before the room opens. The room machinery is separated from all three behind a game engine, and the second and third games are what tested that separation: the second needed two additions to the engine, and the third, built to be structurally unlike both, needed none. See [Platform vs. game](#architecture) for the detail and [Roadmap](#roadmap) for what is next.
 
 ## Key Features
 
@@ -74,6 +74,22 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
 - Each phase ends early once everyone is done, or on its own timer (60s to write, 45s to vote)
 - 20 prompts, none repeated within a single game
 
+### Hot Potato (Minigame 3)
+
+- A category appears, and players take turns naming something in it
+- Turn order is shuffled at the start of each round and shown on the big screen, so you can see yourself coming
+- Repeat something already said and the server refuses it — your clock keeps running, so you can try again
+- Let the clock run out and you are out for the round
+- Anyone still in can challenge an answer they think does not count, and everyone not involved votes on it
+- **A challenge is a duel:** if the table agrees, the answerer is out; if it disagrees, the challenger is. Losing costs you your place either way, which is what stops the button being pressed every turn
+- A tie, or a vote nobody casts, leaves the answer standing — the burden of proof is on whoever interrupted
+- With only two players left the challenge window disappears entirely, because nobody is left to judge
+- 10 points per surviving answer, 100 for being last standing, over three rounds
+- Needs three players, and the lobby says so until it has them
+- 22 categories, none repeated within a single game
+
+Whether an answer really fits the category is never decided in code. Word lists lose that argument — someone always names something reasonable that is not on them — so the game only enforces what it can actually know (that an answer is new), and hands the judgement to the table.
+
 ## Technical Implementation
 
 **Tech Stack**
@@ -109,9 +125,10 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
                           │  delegates play to
                           ▼
           ┌───────────────────────────────┐
-          │   the room's game             │
-          │   word-wall | crowd-favourite │
-          └───────────────────────────────┘
+          │   the room's game                    │
+          │   word-wall | crowd-favourite |      │
+          │   hot-potato                         │
+          └──────────────────────────────────────┘
 ```
 
 A room is bound to one game when it is created and keeps it for life, so a game cannot be swapped out from under the phones already playing it.
@@ -147,6 +164,21 @@ The interface was originally derived from Word Wall alone and kept as small as t
 | `minPlayers`                           | A voting game does not work with one player, and the room is the only thing that counts seats. The number is the game's to declare and the platform's to enforce — the lobby uses it for the button label, and `start_game` refuses below it regardless of what the button was showing. |
 
 Everything else it wanted — three phases, cumulative scoring, shuffling, opaque answer ids, a skip-the-vote path when too few answers arrive — it expressed in its own state with no help from the engine. Two changes for a game deliberately chosen to be unlike the first is the evidence that the opaque-state seam sits in the right place. Per-connection serialisation costs at most a dozen small payloads per broadcast at the 12-player cap, which is a fair price for being able to keep a secret per person.
+
+**What the third game did to the engine**
+
+Nothing. `engine/server.ts` and `engine/client.ts` are untouched by Hot Potato; the only edit anywhere in `engine/` was adding `"hot-potato"` to the list of ids.
+
+That is the result the game was built to find. Both existing games move the whole table through a phase together, so "waiting for a player" had only ever meant waiting for whoever was slowest. A turn-based game was picked precisely because nothing in the engine had ever had to express _it is your move_, and it turned out not to need to:
+
+| What it needed                                      | Where it lives                                                                                                                                                                      |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Turn order, and rotating it past eliminated players | Its own state — a fixed `order` array plus a shrinking `alive` list. The engine never learns that turns exist.                                                                      |
+| A clock per _turn_ rather than per phase            | `deadline(state)` unchanged. It is re-read after every change, so a timer that restarts on each turn is the same mechanism as one that runs for a whole phase.                      |
+| An argument interrupting play, then resuming it     | A `stage` union inside its own state. From the platform's side it is one more opaque mutation.                                                                                      |
+| Not stalling when the player whose turn it is drops | `onSeatsChanged`, which already existed for a different reason. The other two games use it to stop waiting on someone slow; this one uses it to stop waiting on someone _specific_. |
+
+The last row is the only place the difference genuinely bites, and it is a game rule rather than an engine gap: a dead phone in Word Wall means one missing answer, but a dead phone in Hot Potato is a round that never ends. The game puts that player out for the round and the circle carries on. Three games in, the engine has needed two additions total, both from the second game.
 
 **Design decisions worth knowing**
 
@@ -226,6 +258,22 @@ Crowd Favourite's, in `games/crowd-favourite/shared.ts`:
 | `POINTS_PER_VOTE`   | 100   | Awarded to an answer's author, per vote     |
 | `MAX_ANSWER_LENGTH` | 80    | Characters in an answer                     |
 | `MIN_PLAYERS`       | 3     | Fewest players a vote is worth running with |
+
+Hot Potato's, in `games/hot-potato/shared.ts`:
+
+| Constant                 | Value | Meaning                                               |
+| ------------------------ | ----- | ----------------------------------------------------- |
+| `TURN_SECONDS`           | 15    | Time to name something once it is your turn           |
+| `REVIEW_SECONDS`         | 4     | Window in which an answer can be challenged           |
+| `VOTE_SECONDS`           | 15    | Time to judge a challenge                             |
+| `TOTAL_ROUNDS`           | 3     | Rounds before the final standings                     |
+| `POINTS_PER_ANSWER`      | 10    | Awarded for each answer that survives                 |
+| `POINTS_PER_ROUND`       | 100   | Awarded for being last standing                       |
+| `MAX_ANSWER_LENGTH`      | 60    | Characters in an answer                               |
+| `MIN_PLAYERS`            | 3     | Answerer, challenger and at least one judge           |
+| `MIN_ALIVE_TO_CHALLENGE` | 3     | Below this the challenge window is skipped altogether |
+
+`REVIEW_SECONDS` is the one number that is a pure feel judgement rather than a constraint: it is dead time on every single turn, so it buys the table just enough to react and no more.
 
 Each `MIN_PLAYERS` is imported by both halves of its game — the server definition that enforces it and the client that explains it — so the number the lobby shows and the number the server checks cannot drift apart.
 
@@ -312,6 +360,7 @@ What is covered, at 100% of statements, branches, functions and lines:
 | --------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `games/word-wall/server.ts`             | the game's rules: submissions, overwrites, early end, prompts, deadline, the withheld view    |
 | `games/crowd-favourite/server.ts`       | voting rules, anonymity, shuffling, per-round scoring, and the phase transitions between them |
+| `games/hot-potato/server.ts`            | turn order, repeats, elimination, the challenge duel, and not stalling on a dropped phone     |
 | `worker/room/join.ts`                   | the security boundary: host token, name collisions, capacity, seat reclamation                |
 | `worker/room/projection.ts`             | that a viewer only ever receives what that viewer is allowed to see                           |
 | `worker/room/commands.ts`               | platform-vs-game routing, the start-gate, and the outcome mapping                             |
@@ -323,6 +372,13 @@ Three choices worth knowing:
 **The platform is tested against a fake game, not a real one.** `worker/room/testing.ts` defines a stand-in with different phases, commands and view shape. Testing the room with a real game would prove the room works with _that_ game, and would let one game's assumptions leak back into `worker/room/` unnoticed. The fake is what actually holds the abstraction honest.
 
 **The secret-keeping rules are tested as invariants, not as snapshots.** Asserting an expected payload would pass just as happily if a later change added an author field to it. Instead the tests assert the exact key sets of a ballot entry and of a standings row, that two players receive different `yourCandidateId`s, and that a player's own answer never appears in anyone else's view. Each of these was checked by breaking it on purpose: allowing a self-vote, publishing the whole vote map, attaching names to candidates, skipping the shuffle and forgetting the used-prompt list all fail the suite.
+
+**Coverage says a line ran, not that a test would notice it changing.** Each game's suite was checked by mutating the source and confirming the tests go red — 23 deliberate breakages for Hot Potato alone, including allowing a self-challenge, letting a lost challenge cost nobody their place, resolving ties against the answerer, publishing the votes map, skipping the shuffle, advancing turns into eliminated players, and removing the rule that puts a disconnected player out.
+
+Two of those runs paid for the exercise:
+
+- In Crowd Favourite, the eligibility filter in `everyoneVoted` turned out to be unreachable — voting is only entered with two or more entries and nobody writes twice, so no input could tell it apart from its own absence. It was deleted and replaced with a test asserting the invariant that made it redundant.
+- In Hot Potato, the suite was at 100% on every metric and still could not tell `scores[id] = (scores[id] ?? 0) + POINTS_PER_ANSWER` from `scores[id] = POINTS_PER_ANSWER`, because no test had the same player answer twice in one round. Full coverage, real bug. A test for a second accepted answer closed it.
 
 **Coverage is an allow-list.** `vitest.config.ts` names the modules that this suite can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Not covered, and honest about it: the Durable Object itself, sockets, storage and the React layer. The first group needs `@cloudflare/vitest-pool-workers`; the second needs jsdom.
 
@@ -427,12 +483,18 @@ hubbub/
 │   │   ├── prompts.ts         #   its prompt list
 │   │   ├── server.ts          #   its rules
 │   │   └── client/            #   its two screens, and the pieces they use
-│   └── crowd-favourite/       # Same shape, nothing shared with the other game
-│       ├── shared.ts          #   a view type per phase, so a screen cannot
-│       │                      #   read a field that phase does not have
-│       ├── prompts.ts         #   its prompt list
-│       ├── server.ts          #   voting, anonymity and scoring
-│       └── client/            #   write form, ballot, results, scoreboard
+│   ├── crowd-favourite/       # Same shape, nothing shared with the other games
+│   │   ├── shared.ts          #   a view type per phase, so a screen cannot
+│   │   │                      #   read a field that phase does not have
+│   │   ├── prompts.ts         #   its prompt list
+│   │   ├── server.ts          #   voting, anonymity and scoring
+│   │   └── client/            #   write form, ballot, results, scoreboard
+│   └── hot-potato/            # Same shape again. The turn-based one
+│       ├── shared.ts          #   a Stage union: no "reviewing" without an
+│       │                      #   answer to review, so no impossible branches
+│       ├── categories.ts      #   its category list
+│       ├── server.ts          #   turn order, elimination, the challenge duel
+│       └── client/            #   turn circle, answer form, verdict buttons
 ├── worker/
 │   ├── index.ts               # Worker entry: asset serving + API routing
 │   ├── codes.ts               # CSPRNG room codes and host tokens
@@ -501,12 +563,17 @@ Nothing in `shared/`, `worker/` or `src/` changes, and the game picker on the ho
 - [x] Crowd Favourite — the second minigame, and the first real test of the engine's seams
 - [x] Voting, anonymity and scoring across rounds
 - [x] A game picker, so the host chooses what the room will play
+- [x] CD: a green push to `main` deploys itself
+- [x] Hot Potato — the third minigame, and the first with turn order
+- [x] Elimination, a challenge mechanic, and not stalling on the player whose turn it is
 - [ ] Round history and an end-of-game summary
 - [ ] Sound and animation on the host screen
 - [ ] Reconnect as host after closing the TV tab
-- [ ] A third game, ideally one that needs turns rather than simultaneous play
+- [ ] A fourth game that needs teams, or hidden roles
 
-The engine has now run two games that work differently, which moved its seams from a hypothesis to something with evidence behind it — see [What the second game did to the engine](#architecture) for the two changes that were needed and the longer list that was not. The next useful test is a game with turn order, since both existing games are simultaneous and nothing in the engine has yet had to express "it is your move".
+The engine has now run three games that work differently, which moved its seams from a hypothesis to something with evidence behind it. The second game needed two additions; the third, chosen specifically because it is turn-based where the others are simultaneous, needed none — see [What the second game did to the engine](#architecture) and the section after it.
+
+The next useful test is probably a game with **teams or hidden roles**, since all three so far treat every player as an identical, independent seat. Nothing in the engine has yet had to express that two players are on the same side, or that one of them knows something the others do not from the moment the game starts. Host reconnection is the other outstanding gap, and it is a design question before it is a coding one: the host token deliberately lives in `sessionStorage` so hosting cannot leak into a new tab, which also means closing the tab ends the room.
 
 ## Author
 

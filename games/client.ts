@@ -5,11 +5,13 @@
 import type { AnyGameClient } from "../engine/client";
 import type { GameId } from "../engine/ids";
 import { crowdFavouriteClient } from "./crowd-favourite/client";
+import { hotPotatoClient } from "./hot-potato/client";
 import { wordWallClient } from "./word-wall/client";
 
 const CLIENT_GAMES: Record<GameId, AnyGameClient> = {
   "word-wall": wordWallClient,
   "crowd-favourite": crowdFavouriteClient,
+  "hot-potato": hotPotatoClient,
 };
 
 export function clientGame(id: GameId): AnyGameClient {
