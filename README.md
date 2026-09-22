@@ -282,6 +282,27 @@ Two choices worth knowing:
 
 **Coverage is an allow-list.** `vitest.config.ts` names the modules that this suite can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Not covered, and honest about it: the Durable Object itself, sockets, storage and the React layer. The first group needs `@cloudflare/vitest-pool-workers`; the second needs jsdom.
 
+### Continuous Integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+
+| Step           | Command                         |
+| -------------- | ------------------------------- |
+| Binding types  | `npm run typegen`               |
+| Format         | `npx prettier --check .`        |
+| Types          | `npx tsc --noEmit`              |
+| Tests          | `npm run test:coverage`         |
+| Build          | `npx vite build`                |
+| Deploy dry run | `npx wrangler deploy --dry-run` |
+
+Three details that are load-bearing:
+
+- **Typegen runs first.** `worker-configuration.d.ts` is generated from `wrangler.jsonc` and is not committed, but `tsconfig.json` references it — so nothing type-aware can run before it exists.
+- **Steps use `if: ${{ !cancelled() }}`,** so one failure does not hide the others. Seeing every problem at once beats discovering them one push at a time.
+- **The dry-run deploy needs no credentials** and catches config-only breakage — a bad binding, a broken migration — that a build cannot see.
+
+The coverage report is uploaded as an artifact on every run.
+
 ### Deploying
 
 ```bash
@@ -329,6 +350,7 @@ Read top to bottom, this is the platform/game split as directories: `shared/` an
 
 ```
 hubbub/
+├── .github/workflows/ci.yml   # Format, types, tests, build, dry-run deploy
 ├── shared/                    # Platform wire contract — no game knows it exists
 │   ├── protocol.ts            #   state, messages, limits; worker AND client import it
 │   └── validation.ts          #   enforcement, run on both sides
@@ -408,7 +430,7 @@ Nothing in `shared/`, `worker/` or `src/` changes.
 - [x] Word Wall — everyone answers a prompt on the shared screen
 - [x] Game engine: the room machinery separated from any one game's rules
 - [x] Tests over the rules, the security boundary and the platform/game seam
-- [ ] CI, so the suite actually runs on every push
+- [x] CI: format, types, tests with coverage thresholds, build and a dry-run deploy
 - [ ] A second minigame, which is the first real test of the engine's seams
 - [ ] Scoring and voting on answers
 - [ ] Round history and an end-of-game summary
