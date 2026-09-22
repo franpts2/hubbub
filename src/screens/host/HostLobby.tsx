@@ -6,15 +6,18 @@ import { PlayerRoster } from "./PlayerRoster";
 export function HostLobby({
   code,
   gameName,
+  minPlayers,
   players,
   onStart,
 }: {
   code: string;
   gameName: string;
+  /** The game's own floor, so the button explains itself. */
+  minPlayers: number;
   players: PublicPlayer[];
   onStart: () => void;
 }) {
-  const empty = players.length === 0;
+  const missing = minPlayers - players.length;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-10 lg:flex-row lg:items-start lg:gap-16">
@@ -26,8 +29,13 @@ export function HostLobby({
           Playing {gameName}
         </Eyebrow>
         <PlayerRoster players={players} />
-        <Button onClick={onStart} disabled={empty} className="mt-8 w-full text-2xl">
-          {empty ? "Need a player" : "Start the game"}
+        {/*
+          The server refuses to start under the game's minimum too — this only
+          explains the refusal. Saying how many more are needed beats a dead
+          button nobody can account for.
+        */}
+        <Button onClick={onStart} disabled={missing > 0} className="mt-8 w-full text-2xl">
+          {missing > 0 ? `Need ${missing} more` : "Start the game"}
         </Button>
       </div>
     </div>

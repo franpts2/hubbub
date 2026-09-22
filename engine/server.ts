@@ -11,12 +11,20 @@
  * persistence and fan-out. This is what keeps a game portable and keeps the
  * room machinery reusable.
  *
- * Caveat worth writing down: this interface was derived from exactly one game,
- * so it is a hypothesis, not a proven abstraction. It was kept as small as
- * Word Wall allows — there is deliberately no scoring, no teams, no private
- * per-player state and no cross-round bookkeeping here, because guessing at
- * those would produce an interface that fits one imaginary game rather than
- * two real ones. Expect to change it when the second game lands.
+ * History worth keeping, because it is the argument for not guessing: this
+ * interface was first derived from Word Wall alone, and deliberately had no
+ * scoring, no teams, no private per-player state and no cross-round
+ * bookkeeping, on the grounds that inventing them would fit an imaginary game
+ * rather than a real one.
+ *
+ * Crowd Favourite then needed exactly two changes, and only two:
+ *   - `view` became per-viewer rather than per-role, because a game showing an
+ *     anonymous list must privately tell each player which entry is theirs.
+ *   - `minPlayers`, because a voting game does not work with one player.
+ *
+ * Everything else it needed — three phases, cross-round scoring, shuffling,
+ * opaque answer ids — it expressed in its own state with no engine support at
+ * all. That is the evidence that the opaque-state seam is in the right place.
  */
 
 import type { Role } from "../shared/protocol";
@@ -46,6 +54,20 @@ export interface Actor {
 }
 
 /**
+ * Who a snapshot is being built for. `playerId` is `"host"` for the shared
+ * screen, which never holds a seat.
+ *
+ * Structurally identical to `Actor`, and spelled out separately rather than
+ * aliased so that type errors name the one the call site meant. "Who did
+ * this" and "who is this for" are different questions, and a game's `view` is
+ * the one place where confusing them would leak information.
+ */
+export interface Viewer {
+  playerId: string;
+  role: Role;
+}
+
+/**
  * What a game did. The platform turns "changed" into persist + broadcast, and
  * a rejection into a message sent to the one client that asked.
  */
@@ -66,6 +88,16 @@ export interface GameDefinition<State, Command> {
   readonly id: GameId;
   /** Shown in the lobby so players know what is about to start. */
   readonly name: string;
+
+  /**
+   * Fewest seats this game needs to work at all.
+   *
+   * The platform enforces it on `start_game` and the lobby uses it to explain
+   * why the button is disabled. A game that needs people to vote on each
+   * other's answers is simply broken with one player, and that is the game's
+   * knowledge, not the room's.
+   */
+  readonly minPlayers: number;
 
   /** Fresh state, built when the host starts the game. */
   create(ctx: GameContext): State;
@@ -98,10 +130,16 @@ export interface GameDefinition<State, Command> {
   onSeatsChanged?(state: State, ctx: GameContext): GameOutcome;
 
   /**
-   * What this role is allowed to see. The only place hidden information is
-   * withheld, so it is the only place a leak can happen.
+   * What this one viewer is allowed to see. The only place hidden information
+   * is withheld, so it is the only place a leak can happen.
+   *
+   * Keyed on the viewer rather than just their role because "what everyone on
+   * a phone sees" is not always enough. A game that shows an anonymous list of
+   * answers has to tell each player which one is theirs — nobody else may know
+   * that, and the phone cannot work it out for itself. The platform therefore
+   * builds one snapshot per connection; see `Room.broadcast`.
    */
-  view(state: State, role: Role, ctx: GameContext): unknown;
+  view(state: State, viewer: Viewer, ctx: GameContext): unknown;
 }
 
 /**

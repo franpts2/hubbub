@@ -296,7 +296,7 @@ describe("view", () => {
 
   it("withholds answers from players mid-round but still reports progress", () => {
     const { state, seatList } = withAnswers();
-    const view = wordWall.view(state, "player", context(seatList)) as WordWallView;
+    const view = wordWall.view(state, player("bo"), context(seatList)) as WordWallView;
     expect(view.answers).toEqual([]);
     // Progress is safe to share; the text is not.
     expect(view.submitted).toEqual(["ana"]);
@@ -306,7 +306,7 @@ describe("view", () => {
 
   it("shows answers to the host mid-round, since that screen is the game", () => {
     const { state, seatList } = withAnswers();
-    const view = wordWall.view(state, "host", context(seatList)) as WordWallView;
+    const view = wordWall.view(state, host, context(seatList)) as WordWallView;
     expect(view.answers).toHaveLength(1);
     expect(view.answers[0].text).toBe("mine");
   });
@@ -314,14 +314,14 @@ describe("view", () => {
   it("reveals answers to players once the round is over", () => {
     const { state, seatList } = withAnswers();
     send(state, { t: "skip" }, host, seatList);
-    const view = wordWall.view(state, "player", context(seatList)) as WordWallView;
+    const view = wordWall.view(state, player("bo"), context(seatList)) as WordWallView;
     expect(view.answers).toHaveLength(1);
     expect(view.answers[0].text).toBe("mine");
   });
 
   it("never leaks answer text through the submitted list", () => {
     const { state, seatList } = withAnswers();
-    const view = wordWall.view(state, "player", context(seatList)) as WordWallView;
+    const view = wordWall.view(state, player("bo"), context(seatList)) as WordWallView;
     expect(JSON.stringify(view)).not.toContain("mine");
   });
 });

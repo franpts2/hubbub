@@ -10,9 +10,8 @@
  * Test-only: nothing here is imported by shipping code.
  */
 
-import type { GameDefinition } from "../../engine/server";
+import type { GameDefinition, Viewer } from "../../engine/server";
 import { CHANGED, IGNORED, NOT_HOST, rejected } from "../../engine/server";
-import type { Role } from "../../shared/protocol";
 import { createRoom, type IsConnected, type StoredRoom } from "./state";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,10 @@ export type FakeCommand = { t: "bump" } | { t: "finish" };
 export interface FakeView {
   step: string;
   count: number;
+  /** Host-only, to test the role split. */
   secret: string | null;
+  /** Echoes the viewer, to test that each connection gets its own snapshot. */
+  you: string;
 }
 
 /** Records what the platform asked of the game, so delegation can be asserted. */
@@ -42,11 +44,13 @@ export interface FakeCalls {
   deadline: number;
   onDeadline: number;
   onSeatsChanged: number;
-  view: Role[];
+  /** Every viewer the platform built a snapshot for, in order. */
+  view: Viewer[];
   seatsSeen: number[];
 }
 
-export function fakeGame(): {
+/** `minPlayers` is a parameter so the platform's start gate can be tested. */
+export function fakeGame(minPlayers = 1): {
   game: GameDefinition<FakeState, FakeCommand>;
   calls: FakeCalls;
 } {
@@ -60,8 +64,9 @@ export function fakeGame(): {
   };
 
   const game: GameDefinition<FakeState, FakeCommand> = {
-    id: "word-wall", // the only id the registry knows; irrelevant to these tests
+    id: "word-wall", // a real id is required; which one is irrelevant here
     name: "Fake Game",
+    minPlayers,
 
     create(ctx) {
       calls.create += 1;
@@ -119,12 +124,13 @@ export function fakeGame(): {
       return CHANGED;
     },
 
-    view(state, role): FakeView {
-      calls.view.push(role);
+    view(state, viewer): FakeView {
+      calls.view.push(viewer);
       return {
         step: state.step,
         count: state.count,
-        secret: role === "host" ? state.secret : null,
+        secret: viewer.role === "host" ? state.secret : null,
+        you: viewer.playerId,
       };
     },
   };

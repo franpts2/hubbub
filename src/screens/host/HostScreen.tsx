@@ -63,6 +63,7 @@ export function HostScreen({ code, onExit }: { code: string; onExit: () => void 
         <HostLobby
           code={code}
           gameName={game.name}
+          minPlayers={game.minPlayers}
           players={state.players}
           onStart={() => send({ t: "start_game" })}
         />

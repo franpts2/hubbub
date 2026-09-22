@@ -1,12 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 
 import { DEFAULT_GAME_ID, type GameId } from "../../engine/ids";
-import type { AnyGame } from "../../engine/server";
+import type { AnyGame, Viewer } from "../../engine/server";
 import { serverGame } from "../../games/server";
 import {
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
-  type Role,
   type ServerMessage,
 } from "../../shared/protocol";
 import { parseClientMessage } from "../../shared/validation";
@@ -128,12 +127,13 @@ export class Room extends DurableObject<Env> {
     }
 
     const { identity } = outcome;
+    const viewer: Viewer = { playerId: identity.id, role: identity.role };
     const { 0: client, 1: server } = new WebSocketPair();
 
     // acceptWebSocket (not server.accept) is what enables hibernation: the
     // room can drop out of memory while every phone stays connected.
     this.ctx.acceptWebSocket(server, [roleTag(identity.role), playerTag(identity.id)]);
-    attach(server, { playerId: identity.id, role: identity.role });
+    attach(server, viewer);
 
     closeSuperseded(this.ctx, identity.id, server);
 
@@ -145,7 +145,7 @@ export class Room extends DurableObject<Env> {
     send(server, {
       t: "welcome",
       you: identity,
-      state: projectState(room, this.game, identity.role, this.isConnected),
+      state: projectState(room, this.game, viewer, this.isConnected),
     });
     this.broadcast();
 
@@ -295,30 +295,35 @@ export class Room extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(nextAlarmAt(this.room, Date.now()));
   }
 
+  /**
+   * Sends every open socket its own snapshot.
+   *
+   * Built per connection rather than per role. Sharing one payload between
+   * everyone on a phone was cheaper, but it cannot express a game that owes
+   * each player something private — such as which entry in an anonymous list
+   * of answers is their own. A room is capped at `MAX_PLAYERS`, so this is at
+   * most a few kilobytes serialised a dozen times, which is a small price for
+   * being able to keep a secret per person.
+   *
+   * Two sockets for the same player (a refresh mid-flight, a second tab) each
+   * get a snapshot; they are identical, because the viewer is the same.
+   */
   private broadcast(): void {
     const room = this.room;
     if (room === null) return;
 
-    // Serialised once per role rather than once per socket: the host and the
-    // players can see different things, but everyone sharing a role sees the
-    // same snapshot.
-    const payloads: Record<Role, string> = {
-      host: this.stateMessage(room, "host"),
-      player: this.stateMessage(room, "player"),
-    };
-
     for (const socket of this.ctx.getWebSockets()) {
       if (socket.readyState !== WebSocket.OPEN) continue;
-      const actor = attachmentOf(socket);
-      if (actor === null) continue;
-      sendRaw(socket, payloads[actor.role]);
+      const viewer = attachmentOf(socket);
+      if (viewer === null) continue;
+      sendRaw(socket, this.stateMessage(room, viewer));
     }
   }
 
-  private stateMessage(room: StoredRoom, role: Role): string {
+  private stateMessage(room: StoredRoom, viewer: Viewer): string {
     return JSON.stringify({
       t: "state",
-      state: projectState(room, this.game, role, this.isConnected),
+      state: projectState(room, this.game, viewer, this.isConnected),
     } satisfies ServerMessage);
   }
 }

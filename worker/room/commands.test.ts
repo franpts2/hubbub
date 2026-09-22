@@ -63,6 +63,50 @@ describe("start_game", () => {
     expect(stored.game).toBe(before);
     expect(calls.create).toBe(1);
   });
+
+  /**
+   * The lobby disables the button below the minimum, but a disabled button is
+   * not a rule — anything can send `start_game` over the socket. The count is
+   * the platform's to check; the number itself is the game's to declare.
+   */
+  it("refuses to start below the game's minimum", () => {
+    const { stored, isConnected } = room("ana", "bo");
+    const { game, calls } = fakeGame(3);
+
+    const outcome = applyCommand(stored, game, HOST, { t: "start_game" }, isConnected);
+
+    expect(outcome).toEqual({
+      kind: "rejected",
+      code: "wrong_phase",
+      message: "Fake Game needs at least 3 players.",
+    });
+    expect(stored.status).toBe("lobby");
+    expect(calls.create).toBe(0);
+  });
+
+  it("starts once the minimum is met", () => {
+    const { stored, isConnected } = room("ana", "bo", "cy");
+    const { game } = fakeGame(3);
+
+    expect(applyCommand(stored, game, HOST, { t: "start_game" }, isConnected)).toEqual({
+      kind: "applied",
+    });
+    expect(stored.status).toBe("playing");
+  });
+
+  /**
+   * Seats, not sockets. Somebody whose phone dropped mid-lobby still holds
+   * their place, and will almost certainly be back — starting the game should
+   * not be blocked by a walk through a dead spot.
+   */
+  it("counts seats rather than live connections", () => {
+    const { stored, isConnected } = room("ana", "bo!", "cy!");
+    const { game } = fakeGame(3);
+
+    expect(applyCommand(stored, game, HOST, { t: "start_game" }, isConnected)).toEqual({
+      kind: "applied",
+    });
+  });
 });
 
 describe("end_game", () => {

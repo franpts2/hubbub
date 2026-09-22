@@ -17,9 +17,9 @@ import {
   type GameDefinition,
   type GameOutcome,
 } from "../../engine/server";
-import type { Role } from "../../shared/protocol";
 import { pickPrompt } from "./prompts";
 import {
+  MIN_PLAYERS,
   ROUND_SECONDS,
   normalizeAnswer,
   parseWordWallCommand,
@@ -98,6 +98,8 @@ function submit(
 export const wordWall: GameDefinition<WordWallState, WordWallCommand> = {
   id: "word-wall",
   name: "Word Wall",
+  /** Nobody competes, so one person alone still gets a working game. */
+  minPlayers: MIN_PLAYERS,
 
   create(ctx) {
     const state: WordWallState = {
@@ -149,13 +151,17 @@ export const wordWall: GameDefinition<WordWallState, WordWallCommand> = {
     return CHANGED;
   },
 
-  view(state, role: Role): WordWallView {
+  /**
+   * Word Wall owes nobody anything private, so it reads only the viewer's
+   * role and ignores who they are. Everyone on a phone sees the same thing.
+   */
+  view(state, viewer): WordWallView {
     return {
       phase: state.phase,
       prompt: state.prompt,
       submitted: state.answers.map((answer) => answer.playerId),
       // The one place hidden information is withheld.
-      answers: role === "host" || state.phase === "results" ? state.answers : [],
+      answers: viewer.role === "host" || state.phase === "results" ? state.answers : [],
     };
   },
 };

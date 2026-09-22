@@ -50,6 +50,16 @@ export function applyCommand(
           message: "A game is already running.",
         };
       }
+      // The game decides how many people it needs; the room only counts them.
+      // Enforced here as well as in the lobby UI, because a disabled button is
+      // not a rule.
+      if (room.players.length < game.minPlayers) {
+        return {
+          kind: "rejected",
+          code: "wrong_phase",
+          message: `${game.name} needs at least ${game.minPlayers} players.`,
+        };
+      }
       room.status = "playing";
       room.game = game.create(gameContext(room, isConnected));
       return APPLIED;

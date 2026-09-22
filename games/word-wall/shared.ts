@@ -14,6 +14,14 @@ export const MAX_ANSWER_LENGTH = 80;
 /** How long a round lasts before the server force-ends it. */
 export const ROUND_SECONDS = 60;
 
+/**
+ * Nobody is competing, so a single player still gets a working game.
+ *
+ * Read by both the server definition and the client one, so the number the
+ * lobby shows and the number the server enforces cannot drift apart.
+ */
+export const MIN_PLAYERS = 1;
+
 export interface Answer {
   playerId: string;
   name: string;

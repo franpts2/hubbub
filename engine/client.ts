@@ -34,6 +34,14 @@ export interface GamePlayerProps<View> extends GameViewProps<View> {
 export interface GameClient<View> {
   readonly id: GameId;
   readonly name: string;
+  /** One line shown next to the name when picking a game. */
+  readonly tagline: string;
+  /**
+   * Mirrors the server definition's `minPlayers`, so the lobby can say why it
+   * will not start yet. Both sides read it from the game's own shared module,
+   * which is what stops the two copies drifting.
+   */
+  readonly minPlayers: number;
   /** The shared screen. */
   readonly HostView: ComponentType<GameHostProps<View>>;
   /** The phone. */

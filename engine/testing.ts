@@ -27,6 +27,12 @@ export function context(seatList: Seat[], now = 1_000_000): GameContext {
   return { seats: seatList, now };
 }
 
+/**
+ * Who is acting, or who is looking.
+ *
+ * `Actor` and `Viewer` have the same shape, so these double as both: `send`
+ * takes them as the sender, `view` takes them as the audience.
+ */
 export const host: Actor = { playerId: "host", role: "host" };
 
 export function player(id: string): Actor {
