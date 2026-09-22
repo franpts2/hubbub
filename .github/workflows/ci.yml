@@ -5,10 +5,18 @@ on:
     branches: [main]
   pull_request:
 
-# A second push to the same branch makes the first run pointless.
+# A second push to the same branch makes the first run pointless. Safe for
+# the deploy job too: the newer run cancels the older one, so the newest
+# commit is always the one that ships.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# Least privilege, now that this workflow carries a deployment credential.
+# Nothing here writes to the repository; artifact upload uses the runner's
+# own token rather than this one.
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -74,3 +82,61 @@ jobs:
           path: coverage/
           retention-days: 14
           if-no-files-found: ignore
+
+  deploy:
+    name: Deploy
+    # `needs` is what gates this: a failed or cancelled Verify never reaches
+    # here. Note the steps above deliberately run past a failure so every
+    # problem shows at once — that makes the job red, which is what counts.
+    needs: verify
+    # `on.push.branches` already limits pushes to main. The ref is checked
+    # anyway so that adding a branch there later cannot start deploying it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Gives GitHub a deployment record and a link, and leaves somewhere to
+    # attach a required reviewer later without touching this file.
+    environment:
+      name: production
+      url: https://hubbub.franciscaportugal2005.workers.dev
+
+    env:
+      WRANGLER_SEND_METRICS: false
+      CI: true
+      # The account id is not secret — it is committed in wrangler.jsonc — so
+      # the token is the only credential this needs.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      # `secrets` is not a context an `if` can read, hence the env mapping
+      # above. Worth the four lines: without it a missing secret fails deep
+      # inside wrangler with an auth error that never mentions the secret.
+      - name: Check credentials
+        if: ${{ env.CLOUDFLARE_API_TOKEN == '' }}
+        run: |
+          echo "::error::CLOUDFLARE_API_TOKEN is not set. Add it under Settings → Secrets and variables → Actions."
+          exit 1
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Rebuilt rather than carried from Verify as an artifact: wrangler needs
+      # node_modules here regardless, and the build takes under a second. No
+      # typegen either — it only emits types for tsc, which already ran, and
+      # neither the build nor the deploy reads them.
+      - name: Build
+        run: npx vite build
+
+      # The same wrangler and the same command as the dry run, minus the flag.
+      # Deliberately not cloudflare/wrangler-action: this uses the version
+      # pinned in package.json, so whatever passed the dry run is what ships.
+      - name: Deploy
+        run: npx wrangler deploy

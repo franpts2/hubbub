@@ -328,7 +328,7 @@ Three choices worth knowing:
 
 ### Continuous Integration
 
-`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+`.github/workflows/ci.yml` has two jobs. **Verify** runs on every push to `main` and every pull request:
 
 | Step           | Command                         |
 | -------------- | ------------------------------- |
@@ -347,12 +347,28 @@ Three details that are load-bearing:
 
 The coverage report is uploaded as an artifact on every run.
 
+**Deploy** then runs only for a push to `main`, and only if Verify was green — `needs: verify` is what enforces that, since the run-past-failure trick above makes the job red rather than stopping it. Pull requests never reach it.
+
+It rebuilds rather than reusing Verify's output: Wrangler needs `node_modules` in that job regardless, and the build takes under a second, so an artifact hand-off would add more moving parts than it saves. It skips `typegen` for the same kind of reason — that only emits types for `tsc`, which has already run, and neither the build nor the deploy reads them.
+
+It runs `npx wrangler deploy` rather than `cloudflare/wrangler-action`, so the deploy uses the Wrangler version pinned in `package.json` — the same binary and the same command that passed the dry run, minus the flag. It also keeps a third-party action out of the release path.
+
+**Setting it up on a fork.** One repository secret is required, under **Settings → Secrets and variables → Actions**:
+
+| Secret                 | Value                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN` | An API token with the **Edit Cloudflare Workers** template, scoped to your account only |
+
+No `CLOUDFLARE_ACCOUNT_ID` secret is needed, because `wrangler.jsonc` pins `account_id` — it is an identifier, not a credential. If the token is missing the job fails on its first step with a message saying so, rather than somewhere inside Wrangler with an authentication error that never mentions the secret.
+
 ### Deploying
 
 ```bash
 npx wrangler login
 npm run deploy
 ```
+
+Deploying by hand is rarely necessary now: a green push to `main` ships automatically via the Deploy job above. The commands are here for a first deploy from a fresh clone, or for getting a fix out while CI is unavailable.
 
 The current deployment lives at [hubbub.franciscaportugal2005.workers.dev](https://hubbub.franciscaportugal2005.workers.dev). `wrangler.jsonc` pins `account_id`, so `npm run deploy` always targets that account even if your Wrangler login has access to several.
 
