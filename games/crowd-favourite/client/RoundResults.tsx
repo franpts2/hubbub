@@ -1,7 +1,13 @@
-import { Eyebrow, eyebrowClass } from "../../../src/components/ui";
+import { Eyebrow, eyebrowClass, stagger } from "../../../src/components/ui";
 import type { ScoresView } from "../shared";
 
-/** The reveal: who wrote what, and what it earned. */
+/**
+ * The reveal: who wrote what, and what it earned.
+ *
+ * Dealt out one row at a time. This is the payoff screen of the round, and
+ * the cascade buys a beat of anticipation that the same list appearing
+ * instantly does not.
+ */
 export function RoundResults({ view }: { view: ScoresView }) {
   if (view.results.length === 0) {
     return (
@@ -13,13 +19,14 @@ export function RoundResults({ view }: { view: ScoresView }) {
 
   return (
     <ul className="flex flex-1 flex-col justify-center gap-3">
-      {view.results.map((result) => {
+      {view.results.map((result, index) => {
         const won = result.id === view.winnerId;
 
         return (
           <li
             key={result.id}
-            className={`flex items-center justify-between gap-5 rounded-2xl border-2 px-5 py-4 ${
+            style={stagger(index)}
+            className={`animate-rise flex items-center justify-between gap-5 rounded-2xl border-2 px-5 py-4 ${
               won ? "border-zap bg-zap/15" : "border-ink-line bg-ink-soft"
             }`}
           >

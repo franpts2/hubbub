@@ -33,7 +33,13 @@ export function TurnCircle({
           return (
             <li
               key={entry.playerId}
-              className={`rounded-full border-2 px-4 py-2 text-lg font-black transition ${
+              /*
+                The handover is the whole tension of this game, so the
+                highlight is the one transition in the app allowed to be
+                slower than a press: 220ms is long enough to see the turn
+                physically move to the next person round the circle.
+              */
+              className={`rounded-full border-2 px-4 py-2 text-lg font-black transition-[background-color,border-color,color] duration-[220ms] ease-out ${
                 active
                   ? "border-zap bg-zap text-ink"
                   : "border-ink-line bg-ink-soft text-cream"

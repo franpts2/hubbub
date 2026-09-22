@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { clientGames } from "../../../games/client";
 import type { GameId } from "../../../engine/ids";
@@ -15,16 +15,22 @@ export function HostRoomPanel({
   pending,
   disabled,
   onHost,
+  className,
+  style,
 }: {
   pending: boolean;
   disabled: boolean;
   onHost: (gameId: GameId) => void;
+  /** Layout only — how the home screen sizes this against its sibling. */
+  className?: string;
+  /** Entrance offset from `stagger()`. Passed straight to the panel. */
+  style?: CSSProperties;
 }) {
   const games = clientGames();
   const [chosen, setChosen] = useState<GameId>(games[0].id);
 
   return (
-    <Panel>
+    <Panel className={className} style={style}>
       <Eyebrow as="h2">On a TV or laptop</Eyebrow>
       <p className="mt-2 mb-4 text-sm text-muted">
         Open the shared screen everyone can see.
@@ -37,7 +43,10 @@ export function HostRoomPanel({
           return (
             <label
               key={game.id}
-              className={`flex cursor-pointer items-start gap-3 rounded-2xl border-2 px-4 py-3 transition ${
+              // The whole card is the hit target, so the whole card answers
+              // the press. Without this only the radio dot moved, and on a
+              // phone the dot is under your thumb where you cannot see it.
+              className={`flex cursor-pointer items-start gap-3 rounded-2xl border-2 px-4 py-3 transition-[transform,background-color,border-color] duration-150 ease-out active:scale-[0.99] ${
                 selected
                   ? "border-zap bg-zap/10"
                   : "border-ink-line bg-ink hover:border-muted"
@@ -56,7 +65,7 @@ export function HostRoomPanel({
                 value={game.id}
                 checked={selected}
                 onChange={() => setChosen(game.id)}
-                className="mt-1 size-4 shrink-0 appearance-none rounded-full border-2 border-ink-line checked:border-zap checked:bg-zap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cool"
+                className="mt-1 size-4 shrink-0 appearance-none rounded-full border-2 border-ink-line transition-[background-color,border-color] duration-150 ease-out checked:border-zap checked:bg-zap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cool"
               />
               <span>
                 <span className="block text-base font-black">{game.name}</span>

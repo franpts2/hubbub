@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { GameHostProps } from "../../../engine/client";
-import { Button, Eyebrow } from "../../../src/components/ui";
+import { Button, Eyebrow, stagger } from "../../../src/components/ui";
 import type { CrowdFavouriteView } from "../shared";
 import { RoundResults } from "./RoundResults";
 import { Scoreboard } from "./Scoreboard";
@@ -35,7 +35,17 @@ export function HostView(props: GameHostProps<CrowdFavouriteView>) {
         )}
       </div>
 
-      <Board {...props} />
+      {/*
+        The prompt above is allowed the full width — it is one line of very
+        large type and `text-balance` wants the room. The board is not: a
+        result row stretched across a 1440px television put "+200" and the
+        answer that earned it at opposite ends of the screen, with a metre
+        of empty navy between them. Capped, the two belong to each other
+        again.
+      */}
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6">
+        <Board {...props} />
+      </div>
     </div>
   );
 }
@@ -64,10 +74,13 @@ function Board({ view, players, send, onEndGame }: GameHostProps<CrowdFavouriteV
       return (
         <>
           <ul className="flex flex-1 flex-col justify-center gap-3">
-            {view.candidates.map((candidate) => (
+            {view.candidates.map((candidate, index) => (
               <li
                 key={candidate.id}
-                className="rounded-2xl border-2 border-ink-line bg-ink-soft px-5 py-4 text-2xl font-black text-balance"
+                // The same cascade the phones are running, so the wall and
+                // the ballot in everyone's hand fill in together.
+                style={stagger(index)}
+                className="animate-rise rounded-2xl border-2 border-ink-line bg-ink-soft px-5 py-4 text-2xl font-black text-balance"
               >
                 {candidate.text}
               </li>

@@ -15,6 +15,10 @@ import { useCountdown } from "../../hooks/useCountdown";
  * the ballot label, or centred on its own while you watch someone else's
  * turn. Hoisting it into the phone shell would buy consistency the layouts
  * do not want.
+ *
+ * The digits themselves never animate. They change once a second for the
+ * whole round, and anything that moves at that rate stops being a clock and
+ * starts being a distraction.
  */
 
 /** Below this, the timer turns hot pink to create some panic. */
@@ -43,8 +47,14 @@ export function Countdown({
   const urgent = seconds <= URGENT_SECONDS;
   return (
     <div
-      className={`font-black tabular-nums ${SIZE[size]} ${
-        urgent ? "bg-punch text-cream" : "bg-ink-soft text-cream"
+      className={`font-black tabular-nums transition-colors duration-200 ease-out ${
+        SIZE[size]
+      } ${
+        urgent
+          ? // One beat per second, in step with the digits, so the panic is
+            // the timer's own rather than a separate thing wobbling near it.
+            "animate-heartbeat bg-punch text-cream"
+          : "bg-ink-soft text-cream"
       } ${className}`}
       aria-label={`${seconds} seconds remaining`}
     >

@@ -36,7 +36,15 @@ export function HostView(props: GameHostProps<HotPotatoView>) {
         )}
       </div>
 
-      <Board {...props} />
+      {/*
+        Same cap as Crowd Favourite's board, for the same reason: the
+        standings and the list of what has been said are rows, and a row
+        drawn the full width of a television separates a name from its
+        score by the whole screen.
+      */}
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6">
+        <Board {...props} />
+      </div>
     </div>
   );
 }

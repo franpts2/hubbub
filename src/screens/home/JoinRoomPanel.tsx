@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type CSSProperties, type FormEvent } from "react";
 
 import { CODE_LENGTH } from "../../../shared/protocol";
 import { Button, Eyebrow, Panel, TextField } from "../../components/ui";
@@ -7,10 +7,16 @@ export function JoinRoomPanel({
   pending,
   disabled,
   onJoin,
+  className,
+  style,
 }: {
   pending: boolean;
   disabled: boolean;
   onJoin: (code: string) => void;
+  /** Layout only — how the home screen sizes this against its sibling. */
+  className?: string;
+  /** Entrance offset from `stagger()`. Passed straight to the panel. */
+  style?: CSSProperties;
 }) {
   const [code, setCode] = useState("");
 
@@ -20,7 +26,7 @@ export function JoinRoomPanel({
   };
 
   return (
-    <Panel>
+    <Panel className={className} style={style}>
       <Eyebrow as="h2">On your phone</Eyebrow>
       <form onSubmit={submit} className="mt-4 space-y-4">
         <TextField

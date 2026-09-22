@@ -8,6 +8,10 @@ import type { Said } from "../shared";
  * server refuses outright, so this list is the rulebook for the current turn
  * and has to be readable from across a room. Newest last, because people
  * scan for "has this gone yet" from the end.
+ *
+ * Each entry pops as it is accepted, and deliberately without a stagger.
+ * The pop is the table's confirmation that an answer counted — it lands one
+ * at a time, in time with someone saying it out loud.
  */
 export function SaidList({ said, compact = false }: { said: Said[]; compact?: boolean }) {
   if (said.length === 0) {
@@ -23,7 +27,7 @@ export function SaidList({ said, compact = false }: { said: Said[]; compact?: bo
       {said.map((entry, index) => (
         <li
           key={`${entry.playerId}-${index}`}
-          className={`rounded-xl border-2 border-ink-line bg-ink-soft font-bold ${
+          className={`animate-pop rounded-xl border-2 border-ink-line bg-ink-soft font-bold ${
             compact ? "px-3 py-1.5 text-sm" : "px-4 py-2 text-xl"
           }`}
         >

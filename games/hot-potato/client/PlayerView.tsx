@@ -168,7 +168,7 @@ function Verdict({
       type="button"
       onClick={onClick}
       aria-pressed={chosen}
-      className={`flex-1 rounded-2xl border-2 px-4 py-6 text-xl font-black transition active:scale-[0.98] ${
+      className={`flex-1 rounded-2xl border-2 px-4 py-6 text-xl font-black transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.98] ${
         chosen ? "border-zap bg-zap text-ink" : "border-ink-line bg-ink-soft text-cream"
       }`}
     >

@@ -21,12 +21,19 @@ export function HostView({
   return (
     <div className="flex flex-1 flex-col gap-8">
       <div className="text-center">
-        <Eyebrow tracking="wider">
+        {/*
+          Sized up from the app's default eyebrow. While a round is open this
+          line is the only thing on the wall that changes, so it is what the
+          room watches — and at twelve pixels from a sofa it was the smallest
+          text on a television. It is still an order of magnitude below the
+          prompt, which stays the loudest thing on the screen.
+        */}
+        <Eyebrow size="lg" tracking="wider">
           {finished
             ? "The wall"
             : `${view.submitted.length} of ${players.length} answered`}
         </Eyebrow>
-        <h1 className="mt-3 text-4xl font-black text-balance sm:text-6xl">
+        <h1 className="mt-3 text-4xl font-black text-balance sm:text-6xl lg:text-7xl">
           {view.prompt}
         </h1>
       </div>

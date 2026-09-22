@@ -13,30 +13,74 @@
   --font-display:
     ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, -apple-system, sans-serif;
 
-  --animate-pop: pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
-  --animate-rise: rise 0.4s ease-out both;
-  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+  /*
+   * Easing.
+   *
+   * These deliberately replace Tailwind's own `ease-out` and `ease-in-out`.
+   * The stock curves are too gentle to read as intentional: at 200ms they
+   * look like the browser is lagging rather than like the interface is
+   * moving. The stronger variants front-load the travel, which is the part
+   * the eye is actually watching.
+   *
+   * There is no `ease-in` token, and that is the point. Starting slow delays
+   * the exact moment a player is looking for a response, so nothing in this
+   * app enters on one.
+   */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  /* The one curve allowed to overshoot. Reserved for things arriving. */
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Symmetric and soft, for the two loops. The curves above are far too
+     abrupt to breathe with. */
+  --ease-breathe: cubic-bezier(0.4, 0, 0.6, 1);
+
+  --animate-pop: pop 0.26s var(--ease-pop) both;
+  --animate-rise: rise 0.28s var(--ease-out) both;
+  --animate-drop: drop 0.24s var(--ease-out) both;
+  --animate-pulse-soft: pulse-soft 2s var(--ease-breathe) infinite;
+  --animate-heartbeat: heartbeat 1s var(--ease-breathe) infinite;
 }
 
+/*
+ * Entrances start at 0.9, never at 0. Nothing in the world appears from
+ * nothing, and an element that grows from a point reads as a special effect
+ * rather than as something arriving.
+ *
+ * `--tilt` lets a caller keep a resting rotation the animation will not fight
+ * over. Word Wall's cards sit a couple of degrees off-square; before this the
+ * keyframe ended at `rotate(0)` with no fill mode, so every card snapped back
+ * to its tilt on the frame after it landed.
+ */
 @keyframes pop {
-  0% {
-    transform: scale(0.7) rotate(-3deg);
+  from {
+    transform: scale(0.9) rotate(calc(var(--tilt, 0deg) - 2deg));
     opacity: 0;
   }
-  100% {
-    transform: scale(1) rotate(0deg);
+  to {
+    transform: scale(1) rotate(var(--tilt, 0deg));
     opacity: 1;
   }
 }
 
 @keyframes rise {
-  0% {
-    transform: translateY(12px);
+  from {
+    transform: translateY(10px);
     opacity: 0;
   }
-  100% {
+  to {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+/* For things anchored to the top edge, so they arrive from off-screen rather
+   than fading in over the content they are warning about. */
+@keyframes drop {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 
@@ -47,6 +91,27 @@
   }
   50% {
     opacity: 0.45;
+  }
+}
+
+/* The last ten seconds. Scale rather than opacity, because a timer you have
+   to read is the one thing that must never dim. */
+@keyframes heartbeat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(3%, -2.5%, 0);
   }
 }
 
@@ -70,27 +135,88 @@ body {
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
+  inset: -10%;
   pointer-events: none;
   background:
-    radial-gradient(60rem 40rem at 15% -10%, #ff3d8122, transparent 70%),
-    radial-gradient(50rem 35rem at 95% 110%, #3de0ff1f, transparent 70%);
+    radial-gradient(60rem 40rem at 15% 0%, #ff3d8122, transparent 70%),
+    radial-gradient(50rem 35rem at 95% 100%, #3de0ff1f, transparent 70%);
+}
+
+/*
+ * A TV holds one phase on screen for a minute at a time, and a still image
+ * that long starts to look like the app has crashed. This is slow enough
+ * that nobody consciously sees it move — it only stops the picture from
+ * being dead.
+ *
+ * Large screens only: on a phone it is a compositing job running in the
+ * background of a device someone is holding, buying nothing. `inset: -10%`
+ * above gives it room to move without exposing an edge.
+ */
+@media (min-width: 64rem) {
+  body::before {
+    animation: drift 40s var(--ease-breathe) infinite alternate;
+  }
 }
 
 button {
   font-family: inherit;
+  /*
+   * A party game is played entirely with thumbs. `touch-action` drops the
+   * 300ms tap delay, and the other two stop mobile Safari painting a grey
+   * flash over a button and selecting its label on a long press — both of
+   * which make a tap feel like it went wrong.
+   */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 input {
   font-family: inherit;
 }
 
+/*
+ * Reduced motion means fewer and gentler, not none.
+ *
+ * Fades stay: they are what explains that something appeared, and removing
+ * them replaces the motion with a jump cut, which is worse. Travel, rotation
+ * and anything that loops forever go. Press feedback stays too — a button
+ * that shrinks 3% under a finger is direct manipulation, not an animation
+ * playing at someone.
+ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  }
+
+  .animate-pop,
+  .animate-rise,
+  .animate-drop {
+    animation: fade 0.16s var(--ease-out) both !important;
+  }
+
+  /* `pop` is the only entrance that also carries a resting rotation, so
+     replacing it with a fade would flatten Word Wall's pinned-up cards into
+     a plain grid. The tilt is not motion; it survives. */
+  .animate-pop {
+    transform: rotate(var(--tilt, 0deg));
+  }
+
+  .animate-pulse-soft,
+  .animate-heartbeat,
+  body::before {
+    animation: none !important;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

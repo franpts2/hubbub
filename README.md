@@ -193,6 +193,31 @@ The last row is the only place the difference genuinely bites, and it is a game 
 | Host token in `sessionStorage`            | Hosting should not leak into a new tab; player identity in `localStorage` should survive a refresh.                                                                                                                                              |
 | A ~30 line router                         | Three screens and no nested layouts. A routing library would be more configuration than code.                                                                                                                                                    |
 
+**Look and motion**
+
+Two devices, two sets of rules. The shared screen is read from a sofa by a
+room that is mostly looking at each other; a phone is read from thirty
+centimetres by one person under time pressure. Almost every layout decision
+below falls out of that split.
+
+| Decision                                                     | Reasoning                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Host boards capped at `max-w-5xl`, prompts uncapped          | A standings row drawn the full width of a television puts a name and its score a metre apart. The prompt is one line of very large type and wants the room; the rows want to stay a pair.                                                                                            |
+| Host content is vertically centred, never top-aligned        | A TV holds one phase for a minute at a time. Content hanging from the top edge leaves the bottom half of the screen empty for the whole of it.                                                                                                                                       |
+| Custom easing replaces Tailwind's `ease-out` / `ease-in-out` | The stock curves are too gentle to read as deliberate — at 200ms they look like lag rather than movement. There is no `ease-in` token at all: starting slow delays the exact moment a player is watching for a response.                                                             |
+| Entrances start at `scale(0.9)`, never `scale(0)`            | Nothing in the world appears from nothing. An element growing from a point reads as a special effect rather than as something arriving.                                                                                                                                              |
+| `stagger()` only for lists that appear all at once           | A ballot or a scoreboard lands as one block and is dealt out. The answer wall and the roster fill one item at a time, where a delay would mistime the pop that confirms _your_ answer got through.                                                                                   |
+| Disabled buttons are drawn, not dimmed                       | `opacity-40` over this palette turned lime into olive, which looks like a rendering fault rather than a button that is not ready. Disabled drops to the inert surface and loses its shadow, so it is visibly flat on the page.                                                       |
+| Transitions name their properties                            | `transition` on its own also animates colour, and a button whose label fades between states looks unsure of itself when what it should look is immediate.                                                                                                                            |
+| The countdown digits never animate                           | They change once a second for a whole round. Anything moving at that rate stops being a clock and becomes a distraction. Only the urgent state animates, as one beat per second in step with the digits.                                                                             |
+| Reduced motion is gentler, not off                           | Fades stay — they are what explains that something appeared, and removing them substitutes a jump cut. Travel, rotation and the two loops go. Press feedback stays, because a button shrinking 3% under a finger is direct manipulation rather than an animation playing at someone. |
+
+The tokens all live in `src/index.css`. `--tilt` is the one that needs
+explaining: Word Wall's cards sit a couple of degrees off-square, and a
+`transform` set on the element is simply overwritten while an animation runs,
+so the cards used to land flat and snap sideways a frame later. The keyframe
+rotates _to_ `var(--tilt)` instead and its fill mode holds it there.
+
 **Wire Protocol**
 
 `shared/protocol.ts` is imported by the Worker, the Durable Object and the browser, so the contract cannot drift between them. It describes rooms and knows nothing about any game. Validation lives in `shared/validation.ts` and runs on both sides — the client copy is for instant feedback, the server copy is the one that is trusted.
@@ -536,13 +561,13 @@ hubbub/
 ├── src/
 │   ├── main.tsx               # React entry
 │   ├── App.tsx                # Route switch
-│   ├── index.css              # Tailwind theme and design tokens
+│   ├── index.css              # Tailwind theme: colour, easing, keyframes
 │   ├── screens/
 │   │   ├── home/              #   pick a game and host, or join one by code
 │   │   ├── host/              #   the shared screen: chrome, lobby, handover
 │   │   └── player/            #   the phone: name form, waiting room, handover
 │   ├── components/
-│   │   ├── ui/                #   one primitive per file
+│   │   ├── ui/                #   one primitive per file, plus stagger()
 │   │   ├── feedback/          #   loading and notice screens
 │   │   └── QrCode.tsx         #   join QR for the host screen
 │   ├── hooks/

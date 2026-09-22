@@ -20,7 +20,16 @@ export function HostLobby({
   const missing = minPlayers - players.length;
 
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-10 lg:flex-row lg:items-start lg:gap-16">
+    /*
+      There used to be an `lg:items-start` here. Side by side the cross axis
+      is the vertical one, so pinning it to the start hung both columns from
+      the top of a television and left the bottom half of the screen empty —
+      which is what the room is looking at for the entire time people are
+      joining. Letting the base `items-center` apply at every width instead
+      means the tall column fills the screen and the short one sits against
+      the middle of it.
+    */
+    <div className="flex flex-1 flex-col items-center justify-center gap-10 lg:flex-row lg:gap-16">
       <JoinCallout code={code} />
 
       <div className="w-full max-w-md">

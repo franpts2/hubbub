@@ -1,4 +1,4 @@
-import { Eyebrow } from "../../../src/components/ui";
+import { Eyebrow, stagger } from "../../../src/components/ui";
 import type { Standing } from "../shared";
 
 /**
@@ -24,7 +24,10 @@ export function Standings({
       {standings.map((standing, index) => (
         <li
           key={standing.playerId}
-          className={`flex items-baseline justify-between gap-4 rounded-xl border-2 border-ink-line bg-ink-soft ${
+          // Top down, so the eye is led from first place rather than
+          // arriving to find the whole table already settled.
+          style={stagger(index)}
+          className={`animate-rise flex items-baseline justify-between gap-4 rounded-xl border-2 border-ink-line bg-ink-soft ${
             large ? "px-5 py-3" : "px-3 py-1.5"
           }`}
         >
