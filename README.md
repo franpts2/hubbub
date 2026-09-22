@@ -243,16 +243,44 @@ The build is not optional here. `npm run build` writes a redirect config into `.
 
 ### Available Scripts
 
-| Script              | What it does                                                 |
-| ------------------- | ------------------------------------------------------------ |
-| `npm run dev`       | Dev server with HMR and a local Durable Object runtime       |
-| `npm run dev:lan`   | Same, exposed on your local network for phones               |
-| `npm run build`     | Production build, then a type check                          |
-| `npm run preview`   | Build, then serve the output as it will be deployed          |
-| `npm run deploy`    | Build and deploy to Cloudflare                               |
-| `npm run typecheck` | Regenerate binding types, then check                         |
-| `npm run typegen`   | Regenerate `worker-configuration.d.ts` from `wrangler.jsonc` |
-| `npm run format`    | Prettier                                                     |
+| Script                  | What it does                                                 |
+| ----------------------- | ------------------------------------------------------------ |
+| `npm run dev`           | Dev server with HMR and a local Durable Object runtime       |
+| `npm run dev:lan`       | Same, exposed on your local network for phones               |
+| `npm test`              | Run the test suite once                                      |
+| `npm run test:watch`    | Re-run affected tests as you edit                            |
+| `npm run test:coverage` | Run with coverage, enforcing the thresholds                  |
+| `npm run build`         | Production build, then a type check                          |
+| `npm run preview`       | Build, then serve the output as it will be deployed          |
+| `npm run deploy`        | Build and deploy to Cloudflare                               |
+| `npm run typecheck`     | Regenerate binding types, then check                         |
+| `npm run typegen`       | Regenerate `worker-configuration.d.ts` from `wrangler.jsonc` |
+| `npm run format`        | Prettier                                                     |
+
+### Testing
+
+```bash
+npm test
+```
+
+Tests sit next to the code they cover, as `*.test.ts`. They run in plain Node rather than workerd, which is a deliberate consequence of the architecture: pushing sockets, storage and alarms out into `Room.ts` left the decision-making underneath as functions over plain objects, so they need no Workers runtime to exercise.
+
+What is covered, at 100% of statements, branches, functions and lines:
+
+| Area                                    | What the tests pin down                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `games/word-wall/server.ts`             | the game's rules: submissions, overwrites, early end, prompts, deadline, the withheld view |
+| `worker/room/join.ts`                   | the security boundary: host token, name collisions, capacity, seat reclamation             |
+| `worker/room/projection.ts`             | that a role only ever receives what its role is allowed to see                             |
+| `worker/room/commands.ts`               | platform-vs-game routing and the outcome mapping                                           |
+| `worker/room/{state,alarms}.ts`         | presence, ghost pruning, and the alarm multiplexing                                        |
+| `shared/validation.ts`, `engine/ids.ts` | everything that narrows untrusted input                                                    |
+
+Two choices worth knowing:
+
+**The platform is tested against a fake game, not Word Wall.** `worker/room/testing.ts` defines a stand-in with different phases, commands and view shape. Testing the room with the only real game would prove the room works with _that_ game, and would let a Word Wall assumption leak back into `worker/room/` unnoticed. The fake is what actually holds the abstraction honest.
+
+**Coverage is an allow-list.** `vitest.config.ts` names the modules that this suite can meaningfully cover, rather than measuring the whole repo. A number that drops whenever someone adds a React component is a number people learn to ignore. Not covered, and honest about it: the Durable Object itself, sockets, storage and the React layer. The first group needs `@cloudflare/vitest-pool-workers`; the second needs jsdom.
 
 ### Deploying
 
@@ -307,7 +335,8 @@ hubbub/
 ├── engine/                    # What a game must provide. No game logic of its own
 │   ├── ids.ts                 #   the set of known game ids
 │   ├── server.ts              #   GameDefinition: create/apply/deadline/view
-│   └── client.ts              #   GameClient: HostView + PlayerView
+│   ├── client.ts              #   GameClient: HostView + PlayerView
+│   └── testing.ts             #   seat/actor helpers for any game's tests
 ├── games/
 │   ├── server.ts              # Registry of server halves (worker bundle)
 │   ├── client.ts              # Registry of client halves (browser bundle)
@@ -329,7 +358,8 @@ hubbub/
 │       ├── join.ts            #   who is connecting: the security boundary
 │       ├── commands.ts        #   routes a message to the platform or the game
 │       ├── projection.ts      #   builds the snapshot for one role
-│       └── alarms.ts          #   multiplexes game deadline vs. room expiry
+│       ├── alarms.ts          #   multiplexes game deadline vs. room expiry
+│       └── testing.ts         #   a fake game, so the room is tested game-agnostically
 ├── src/
 │   ├── main.tsx               # React entry
 │   ├── App.tsx                # Route switch
@@ -356,9 +386,12 @@ hubbub/
 ├── index.html
 ├── wrangler.jsonc             # Worker config, DO binding, asset rules
 ├── vite.config.ts
+├── vitest.config.ts           # Node test env + the coverage allow-list
 ├── tsconfig.json
 └── .npmrc                     # Pins @cloudflare to the public registry
 ```
+
+Tests live beside the code as `*.test.ts` and are omitted above.
 
 **Adding a game**
 
@@ -374,6 +407,8 @@ Nothing in `shared/`, `worker/` or `src/` changes.
 - [x] Reconnection that survives locked phones and flaky Wi-Fi
 - [x] Word Wall — everyone answers a prompt on the shared screen
 - [x] Game engine: the room machinery separated from any one game's rules
+- [x] Tests over the rules, the security boundary and the platform/game seam
+- [ ] CI, so the suite actually runs on every push
 - [ ] A second minigame, which is the first real test of the engine's seams
 - [ ] Scoring and voting on answers
 - [ ] Round history and an end-of-game summary

@@ -20,10 +20,21 @@ export const PROMPTS: readonly string[] = [
   "Worst name for a boat.",
 ];
 
-export function pickPrompt(previous: string | null): string {
-  if (PROMPTS.length === 0) return "Say something.";
-  // Avoid repeating the prompt that was just used.
-  const pool = PROMPTS.filter((prompt) => prompt !== previous);
-  const options = pool.length > 0 ? pool : PROMPTS;
+/**
+ * A prompt that is not the one just used.
+ *
+ * `pool` is a parameter only so the degenerate cases — a list with a single
+ * entry, or none at all — can be exercised without rewriting the real list.
+ * Production always uses the default.
+ */
+export function pickPrompt(
+  previous: string | null,
+  pool: readonly string[] = PROMPTS,
+): string {
+  if (pool.length === 0) return "Say something.";
+  const fresh = pool.filter((prompt) => prompt !== previous);
+  // With a one-prompt list there is nothing else to pick, so repeat rather
+  // than return nothing.
+  const options = fresh.length > 0 ? fresh : pool;
   return options[Math.floor(Math.random() * options.length)];
 }
