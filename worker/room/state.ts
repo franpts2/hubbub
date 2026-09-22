@@ -1,15 +1,15 @@
 /**
  * The room as data, plus every legal transformation of it.
  *
- * Nothing in here touches storage, sockets or the Durable Object. That is the
- * point: the rules of the game are the part most worth being able to read (and
- * eventually test) without standing up a runtime, so effects are pushed out to
- * the caller and anything about who is actually online arrives as an
- * `IsConnected` function.
+ * Scope check: seats, names, presence and the lobby/playing status. The active
+ * game's state rides along as an opaque `game` field that only the game itself
+ * ever reads. Nothing in here touches storage, sockets or the Durable Object,
+ * so the room's own rules stay readable without standing up a runtime.
  */
 
-import { ROUND_SECONDS, type Answer, type Phase } from "../../shared/protocol";
-import { pickPrompt } from "../prompts";
+import type { GameId } from "../../engine/ids";
+import type { GameContext, Seat } from "../../engine/server";
+import type { RoomStatus } from "../../shared/protocol";
 
 /**
  * Whether a player is holding a live socket right now. Implemented by
@@ -39,23 +39,31 @@ export interface StoredRoom {
   code: string;
   /** Proves a client is the screen that created the room, not a player. */
   hostToken: string;
-  phase: Phase;
-  prompt: string | null;
-  deadline: number | null;
+  /** Which game this room runs. Fixed at creation. */
+  gameId: GameId;
+  status: RoomStatus;
   players: StoredPlayer[];
-  answers: Answer[];
+  /**
+   * The active game's state, or null in the lobby.
+   *
+   * Opaque by design. The platform persists it, hands it back to the game, and
+   * never inspects it — which is exactly why a new game needs no changes here.
+   */
+  game: unknown;
+  /** Mirrors the active game's `deadline`, cached so the alarm can be set. */
+  deadline: number | null;
   lastActivity: number;
 }
 
-export function createRoom(code: string, hostToken: string): StoredRoom {
+export function createRoom(code: string, hostToken: string, gameId: GameId): StoredRoom {
   return {
     code,
     hostToken,
-    phase: "lobby",
-    prompt: null,
-    deadline: null,
+    gameId,
+    status: "lobby",
     players: [],
-    answers: [],
+    game: null,
+    deadline: null,
     lastActivity: Date.now(),
   };
 }
@@ -63,6 +71,16 @@ export function createRoom(code: string, hostToken: string): StoredRoom {
 /** Pushes back the idle timeout. Called for anything a human did. */
 export function touch(room: StoredRoom): void {
   room.lastActivity = Date.now();
+}
+
+/** The roster as the active game sees it, rebuilt fresh on every use. */
+export function gameContext(room: StoredRoom, isConnected: IsConnected): GameContext {
+  const seats: Seat[] = room.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    connected: isConnected(player.id),
+  }));
+  return { seats, now: Date.now() };
 }
 
 // ---------------------------------------------------------------------------
@@ -100,67 +118,18 @@ export function removePlayer(room: StoredRoom, playerId: string): void {
  * forever. Only safe in the lobby: mid-game a seat is worth keeping.
  */
 export function pruneLobbyGhosts(room: StoredRoom, isConnected: IsConnected): void {
-  if (room.phase !== "lobby") return;
+  if (room.status !== "lobby") return;
   room.players = room.players.filter((player) => isConnected(player.id));
 }
 
 // ---------------------------------------------------------------------------
-// Phases
+// Lobby / playing
 // ---------------------------------------------------------------------------
 
-export function startRound(room: StoredRoom): void {
-  room.phase = "prompt";
-  room.prompt = pickPrompt(room.prompt);
-  // Clearing answers also resets every player's `submitted` flag, which is
-  // derived rather than stored.
-  room.answers = [];
-  room.deadline = Date.now() + ROUND_SECONDS * 1000;
-}
-
-export function endRound(room: StoredRoom): void {
-  room.phase = "results";
+export function returnToLobby(room: StoredRoom, isConnected: IsConnected): void {
+  room.status = "lobby";
+  room.game = null;
   room.deadline = null;
-}
-
-export function resetToLobby(room: StoredRoom, isConnected: IsConnected): void {
-  room.phase = "lobby";
-  room.prompt = null;
-  room.answers = [];
-  room.deadline = null;
-  // Drop players who wandered off, so the next round starts clean.
+  // Drop players who wandered off, so the next game starts clean.
   room.players = room.players.filter((player) => isConnected(player.id));
-}
-
-// ---------------------------------------------------------------------------
-// Answers
-// ---------------------------------------------------------------------------
-
-/** Re-submitting overwrites: players change their mind constantly. */
-export function upsertAnswer(room: StoredRoom, player: StoredPlayer, text: string): void {
-  const answer: Answer = {
-    playerId: player.id,
-    name: player.name,
-    text,
-    at: Date.now(),
-  };
-  const index = room.answers.findIndex((entry) => entry.playerId === player.id);
-  if (index === -1) room.answers.push(answer);
-  else room.answers[index] = answer;
-}
-
-export function hasAnswered(room: StoredRoom, playerId: string): boolean {
-  return room.answers.some((answer) => answer.playerId === playerId);
-}
-
-/**
- * True once everyone still in the room has sent something, which lets the
- * round end early instead of making people watch a timer tick down.
- *
- * Only players who are actually here can be waited on — a ghost would
- * otherwise stall the round until the full timer expired.
- */
-export function everyoneAnswered(room: StoredRoom, isConnected: IsConnected): boolean {
-  const active = room.players.filter((player) => isConnected(player.id));
-  if (active.length === 0) return false;
-  return active.every((player) => hasAnswered(room, player.id));
 }

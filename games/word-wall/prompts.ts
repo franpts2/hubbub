@@ -1,6 +1,6 @@
 /**
- * Prompts for the "Word Wall" minigame. Deliberately open-ended: the fun in
- * milestone 1 is just seeing everyone's phrases land on the big screen at once.
+ * Prompts for the "Word Wall" minigame. Deliberately open-ended: the fun is
+ * just seeing everyone's phrases land on the big screen at once.
  */
 export const PROMPTS: readonly string[] = [
   "Describe this group in one word.",

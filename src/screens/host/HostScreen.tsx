@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { clientGame } from "../../../games/client";
 import { LoadingScreen } from "../../components/feedback/LoadingScreen";
 import { NoticeScreen } from "../../components/feedback/NoticeScreen";
 import { Button, ConnectionBadge, Screen } from "../../components/ui";
@@ -8,13 +9,14 @@ import { fatalError } from "../../lib/connection";
 import { loadHostToken } from "../../lib/session";
 import { HostHeader } from "./HostHeader";
 import { HostLobby } from "./HostLobby";
-import { HostRound } from "./HostRound";
 
 /**
  * The shared screen: a TV, a laptop, whatever everyone is looking at.
  *
- * This component only decides *which* view the room is in. Everything it
- * renders is a dumb function of the snapshot the server sent.
+ * It owns the room, not the game: the connection, the header, the lobby, and
+ * the decision to hand over. Once a game is running the middle of the screen
+ * belongs to that game's own component, looked up by id, and this file has no
+ * idea what it draws.
  */
 export function HostScreen({ code, onExit }: { code: string; onExit: () => void }) {
   const hostToken = useMemo(() => loadHostToken(code), [code]);
@@ -49,27 +51,28 @@ export function HostScreen({ code, onExit }: { code: string; onExit: () => void 
     return <LoadingScreen status={status} label="Opening room…" size="xl" />;
   }
 
+  const game = clientGame(state.gameId);
+
   return (
     <Screen className="gap-8">
       <ConnectionBadge status={status} />
 
-      <HostHeader code={code} phase={state.phase} deadline={state.deadline} />
+      <HostHeader code={code} status={state.status} deadline={state.deadline} />
 
-      {state.phase === "lobby" ? (
+      {state.status === "lobby" ? (
         <HostLobby
           code={code}
+          gameName={game.name}
           players={state.players}
-          onStart={() => send({ t: "start" })}
+          onStart={() => send({ t: "start_game" })}
         />
       ) : (
-        <HostRound
-          prompt={state.prompt}
-          answers={state.answers}
+        <game.HostView
+          view={state.game}
           players={state.players}
-          finished={state.phase === "results"}
-          onSkip={() => send({ t: "skip" })}
-          onNext={() => send({ t: "start" })}
-          onLobby={() => send({ t: "reset" })}
+          deadline={state.deadline}
+          send={(command) => send({ t: "game", c: command })}
+          onEndGame={() => send({ t: "end_game" })}
         />
       )}
     </Screen>

@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
 
+import { DEFAULT_GAME_ID, type GameId } from "../../engine/ids";
+import type { AnyGame } from "../../engine/server";
+import { serverGame } from "../../games/server";
 import {
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
@@ -8,8 +11,8 @@ import {
 } from "../../shared/protocol";
 import { parseClientMessage } from "../../shared/validation";
 import { generateToken } from "../codes";
-import { idleExpired, nextAlarmAt, roundExpired } from "./alarms";
-import { applyCommand } from "./commands";
+import { deadlinePassed, idleExpired, nextAlarmAt } from "./alarms";
+import { applyCommand, notifyDeadline, notifySeatsChanged } from "./commands";
 import { resolveIdentity } from "./join";
 import { closeSuperseded, connectionChecker, isConnected } from "./presence";
 import { projectState } from "./projection";
@@ -27,8 +30,6 @@ import {
 import { clearRoom, loadRoom, saveRoom } from "./storage";
 import {
   createRoom,
-  endRound,
-  everyoneAnswered,
   findPlayer,
   removePlayer,
   touch,
@@ -40,10 +41,11 @@ import {
  * One instance of this class exists per room code, globally. Every connected
  * phone and the big screen hold a WebSocket to this one object.
  *
- * What lives here is only what genuinely needs the runtime: the socket
- * lifecycle, persistence, the alarm, and fan-out. The rules of the game are in
- * `state.ts`, who may do what is in `join.ts` and `commands.ts`, and what each
- * role is allowed to see is in `projection.ts`.
+ * It owns the room, not the game. Sockets, seats, presence, persistence, the
+ * alarm slot and fan-out live here; what happens after the host presses start
+ * belongs to whichever game the room was created with, reached through
+ * `engine/server`. The only game-shaped thing it holds is an opaque blob it
+ * persists and hands back.
  */
 export class Room extends DurableObject<Env> {
   private room: StoredRoom | null = null;
@@ -66,6 +68,11 @@ export class Room extends DurableObject<Env> {
     );
   }
 
+  /** The game this room runs, looked up rather than stored. */
+  private get game(): AnyGame {
+    return serverGame(this.room?.gameId ?? DEFAULT_GAME_ID);
+  }
+
   // -------------------------------------------------------------------------
   // RPC, called by the Worker
   // -------------------------------------------------------------------------
@@ -78,11 +85,14 @@ export class Room extends DurableObject<Env> {
    * object, so without an explicit "was this ever created" flag, joining with
    * a wrong code would silently drop you into an empty room.
    */
-  async tryCreate(code: string): Promise<{ ok: boolean; hostToken?: string }> {
+  async tryCreate(
+    code: string,
+    gameId: GameId,
+  ): Promise<{ ok: boolean; hostToken?: string }> {
     if (this.room !== null) return { ok: false };
 
     const hostToken = generateToken();
-    this.room = createRoom(code, hostToken);
+    this.room = createRoom(code, hostToken, gameId);
     await this.persist();
     return { ok: true, hostToken };
   }
@@ -128,12 +138,14 @@ export class Room extends DurableObject<Env> {
     closeSuperseded(this.ctx, identity.id, server);
 
     touch(room);
+    // A new arrival can complete the set the game was waiting on.
+    notifySeatsChanged(room, this.game, this.isConnected);
     await this.persist();
 
     send(server, {
       t: "welcome",
       you: identity,
-      state: projectState(room, identity.role, this.isConnected),
+      state: projectState(room, this.game, identity.role, this.isConnected),
     });
     this.broadcast();
 
@@ -157,7 +169,7 @@ export class Room extends DurableObject<Env> {
 
     touch(room);
 
-    const outcome = applyCommand(room, actor, message, this.isConnected);
+    const outcome = applyCommand(room, this.game, actor, message, this.isConnected);
     switch (outcome.kind) {
       case "applied":
         await this.commit();
@@ -194,25 +206,21 @@ export class Room extends DurableObject<Env> {
     // no matter what order the events arrive in.
     if (isConnected(this.ctx, player.id, ws)) return;
 
-    if (room.phase === "lobby") {
+    if (room.status === "lobby") {
       // Nothing to preserve before the game starts — free the name and slot.
       removePlayer(room, player.id);
     }
-    // Mid-game we keep the seat and the answer so they can come back. There is
-    // no flag to flip either way, since `connected` is derived.
+    // Mid-game we keep the seat so they can come back, and let the game decide
+    // whether their absence changes anything.
 
     touch(room);
-
-    // Their departure may have been the last one the round was waiting on.
-    if (room.phase === "prompt" && everyoneAnswered(room, this.isConnected)) {
-      endRound(room);
-    }
+    notifySeatsChanged(room, this.game, this.isConnected);
 
     await this.commit();
   }
 
   // -------------------------------------------------------------------------
-  // Alarms: round deadline and idle cleanup share the single alarm slot
+  // Alarms: the game's deadline and idle cleanup share the single slot
   // -------------------------------------------------------------------------
 
   async alarm(): Promise<void> {
@@ -220,9 +228,12 @@ export class Room extends DurableObject<Env> {
     if (room === null) return;
     const now = Date.now();
 
-    if (roundExpired(room, now)) {
-      endRound(room);
-      await this.commit();
+    if (deadlinePassed(room, now)) {
+      // Only broadcast if the game actually did something. A timer firing is
+      // not by itself news, and this is the one path that can wake every phone
+      // in the room without a human having touched anything.
+      if (notifyDeadline(room, this.game, this.isConnected)) await this.commit();
+      else await this.persist();
     }
 
     if (idleExpired(room, now)) {
@@ -252,10 +263,23 @@ export class Room extends DurableObject<Env> {
   // Effects
   // -------------------------------------------------------------------------
 
+  /**
+   * Re-reads the active game's timer.
+   *
+   * The game only has to keep its own state right; asking it after every
+   * change is what keeps the cached deadline, and therefore the alarm, honest.
+   */
+  private syncDeadline(): void {
+    const room = this.room;
+    if (room === null) return;
+    room.deadline = room.status === "playing" ? this.game.deadline(room.game) : null;
+  }
+
   /** Write the room down and make sure an alarm is pending for its next deadline. */
   private async persist(): Promise<void> {
     const room = this.room;
     if (room === null) return;
+    this.syncDeadline();
     await saveRoom(this.ctx.storage, room);
     await this.scheduleAlarm();
   }
@@ -268,7 +292,7 @@ export class Room extends DurableObject<Env> {
 
   private async scheduleAlarm(): Promise<void> {
     if (this.room === null) return;
-    await this.ctx.storage.setAlarm(nextAlarmAt(this.room));
+    await this.ctx.storage.setAlarm(nextAlarmAt(this.room, Date.now()));
   }
 
   private broadcast(): void {
@@ -276,8 +300,8 @@ export class Room extends DurableObject<Env> {
     if (room === null) return;
 
     // Serialised once per role rather than once per socket: the host and the
-    // players see different answers, but everyone sharing a role sees the same
-    // snapshot.
+    // players can see different things, but everyone sharing a role sees the
+    // same snapshot.
     const payloads: Record<Role, string> = {
       host: this.stateMessage(room, "host"),
       player: this.stateMessage(room, "player"),
@@ -294,7 +318,7 @@ export class Room extends DurableObject<Env> {
   private stateMessage(room: StoredRoom, role: Role): string {
     return JSON.stringify({
       t: "state",
-      state: projectState(room, role, this.isConnected),
+      state: projectState(room, this.game, role, this.isConnected),
     } satisfies ServerMessage);
   }
 }

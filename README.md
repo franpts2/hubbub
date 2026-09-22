@@ -17,7 +17,7 @@ Hubbub is a party game you play in the same room. One screen — a TV or a lapto
 
 The whole thing runs on a single Cloudflare Worker. Each room is one Durable Object, which makes the room itself the authority on its own state: there is no shared database to contend on, no cross-instance coordination, and no polling. Rooms hibernate while nothing is happening, so an idle lobby costs nothing to keep open.
 
-> **Status:** early. The first minigame (Word Wall) is complete and playable end to end. The room, lobby, reconnection and round machinery are built to be reused by later games, but only one game exists so far — see [Roadmap](#roadmap).
+> **Status:** early. The first minigame (Word Wall) is complete and playable end to end. The room machinery is separated from it behind a game engine, so a second game plugs in without touching the platform — but only one game exists so far, which means the engine's seams are still unproven. See [Roadmap](#roadmap).
 
 ## Key Features
 
@@ -87,11 +87,17 @@ The whole thing runs on a single Cloudflare Worker. Each room is one Durable Obj
          └───────────────┬───────────────┘
                          │  getByName(code)
                          ▼
-         ┌───────────────────────────────┐
-         │   Room Durable Object         │
-         │   game state + round timer    │
-         │   (one instance per room)     │
-         └───────────────────────────────┘
+          ┌───────────────────────────────┐
+          │   Room Durable Object         │
+          │   seats, sockets, timer slot  │
+          │   (one instance per room)     │
+          └───────────────┬───────────────┘
+                          │  delegates play to
+                          ▼
+          ┌───────────────────────────────┐
+          │   the room's game             │
+          │   (games/word-wall)           │
+          └───────────────────────────────┘
 ```
 
 One Worker serves the React app, the API and the WebSocket endpoint, so everything is same-origin and there is no CORS to configure. `run_worker_first` is scoped to `/api/*`, leaving static assets to be served directly by Cloudflare's asset layer.
@@ -99,6 +105,23 @@ One Worker serves the React app, the API and the WebSocket endpoint, so everythi
 **Why one Durable Object per room**
 
 A party game is a lot of small, independent, stateful sessions. Addressing each room as `ROOM.getByName(code)` means the room code _is_ the address, so no lookup table is needed, and the object holding the state is the only thing that can mutate it. That removes write contention and the class of bugs where two servers disagree about whose turn it is.
+
+**Platform vs. game**
+
+The split runs through the whole codebase. The platform owns the room: codes, seats, names, presence, sockets, persistence, broadcasting, reconnection, room expiry, and the single `lobby`/`playing` distinction. A game owns what happens after the host presses start — its own phases, its own messages, its own limits.
+
+A game is one object on each side of the wire:
+
+| Provides         | For    | Responsibility                                                                        |
+| ---------------- | ------ | ------------------------------------------------------------------------------------- |
+| `GameDefinition` | server | `create`, `parseCommand`, `apply`, `deadline`, `onDeadline`, `onSeatsChanged`, `view` |
+| `GameClient`     | client | a `HostView` for the shared screen and a `PlayerView` for the phone                   |
+
+A game never touches a socket, writes to storage or schedules an alarm. It is handed a snapshot of who is at the table, mutates its own state, and returns `changed` / `ignored` / `rejected`; the platform decides what that costs in persistence and fan-out. Timers work the same way: a game publishes a timestamp from `deadline(state)` and the platform multiplexes it against room expiry in the DO's one alarm slot.
+
+The two registries (`games/server.ts`, `games/client.ts`) are deliberately separate files. A single registry exporting both halves would pull prompt lists and round logic into the browser bundle, and would make importing server code from a component an easy accident. As built, the Worker bundle contains no React and the client bundle contains no game rules.
+
+> The interface was derived from exactly one game, so it is a hypothesis rather than a proven abstraction. It was kept as small as Word Wall genuinely requires — no scoring, teams, private per-player state or cross-round bookkeeping — because inventing those would fit an imaginary second game instead of a real one. Expect it to change when the second game lands.
 
 **Design decisions worth knowing**
 
@@ -115,43 +138,55 @@ A party game is a lot of small, independent, stateful sessions. Addressing each 
 
 **Wire Protocol**
 
-`shared/protocol.ts` is imported by the Worker, the Durable Object and the browser, so the contract cannot drift between them. Validators live there too and run on both sides — the client copy is for instant feedback, the server copy is the one that is trusted.
+`shared/protocol.ts` is imported by the Worker, the Durable Object and the browser, so the contract cannot drift between them. It describes rooms and knows nothing about any game. Validation lives in `shared/validation.ts` and runs on both sides — the client copy is for instant feedback, the server copy is the one that is trusted.
 
-| Client → Server | Who    | Effect                     |
-| --------------- | ------ | -------------------------- |
-| `start`         | host   | lobby or results → prompt  |
-| `submit`        | player | send an answer to the wall |
-| `skip`          | host   | end the round early        |
-| `reset`         | host   | back to the lobby          |
+There are three messages, because only two things are the platform's business:
 
-| Server → Client | Payload                                                               |
-| --------------- | --------------------------------------------------------------------- |
-| `welcome`       | your identity plus a full state snapshot                              |
-| `state`         | a full state snapshot                                                 |
-| `error`         | an `ErrorCode`, a readable message, and whether retrying is pointless |
+| Client → Server | Who    | Effect                                                 |
+| --------------- | ------ | ------------------------------------------------------ |
+| `start_game`    | host   | lobby → playing, building the game's initial state     |
+| `end_game`      | host   | playing → lobby, discarding the game's state           |
+| `game`          | anyone | forwarded verbatim to the active game's `parseCommand` |
 
-Answers are withheld from players during the `prompt` phase, so a phone cannot be used to read everyone else's answer before writing its own. The host screen receives them because the host screen is the thing everyone is already looking at.
+| Server → Client | Payload                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `welcome`       | your identity plus a full state snapshot                         |
+| `state`         | a full state snapshot                                            |
+| `error`         | an `ErrorCode`, a readable message, and whether to stop retrying |
+
+A snapshot carries the room (`code`, `gameId`, `status`, `players`, `deadline`) plus a `game` field that is opaque to everything between the game's server-side `view` and its own components. That is the seam: a new game adds messages and state without touching the platform, and the platform cannot accidentally depend on one game's shape.
+
+`error` is only fatal when the connection itself will never be accepted — a refused handshake, or a closed room. A complaint about a message (`bad_message`, `wrong_phase`, `game_rejected`, or a host-only command from a player) leaves a healthy socket alone.
+
+Hidden information is withheld server-side, in the game's `view`, never in the UI. Word Wall uses this to keep answers from players during its `prompt` phase, so a phone cannot be used to read everyone else's answer before writing its own — while still sending the list of who has answered, so both screens can show progress. The host screen receives the answers because it is the thing everyone is already looking at.
 
 **HTTP API**
 
-| Method | Path                  | Purpose                                            |
-| ------ | --------------------- | -------------------------------------------------- |
-| `POST` | `/api/rooms`          | Create a room; returns its code and a host token   |
-| `GET`  | `/api/rooms/:code`    | Does this room exist? Lets the join form fail fast |
-| `GET`  | `/api/rooms/:code/ws` | WebSocket upgrade, forwarded to the room           |
+| Method | Path                  | Purpose                                                                                                                |
+| ------ | --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `POST` | `/api/rooms`          | Create a room; returns its code and a host token. Accepts an optional `gameId`, which a room is then bound to for life |
+| `GET`  | `/api/rooms/:code`    | Does this room exist? Lets the join form fail fast                                                                     |
+| `GET`  | `/api/rooms/:code/ws` | WebSocket upgrade, forwarded to the room                                                                               |
 
 **Round & Lifecycle Timing**
 
-A Durable Object has a single alarm slot, so one alarm is multiplexed between the two deadlines that matter — the end of the current round and room expiry — by always scheduling whichever comes first.
+A Durable Object has a single alarm slot, so one alarm is multiplexed between the two deadlines that matter — whatever the active game is waiting for and room expiry — by always scheduling whichever comes first. The platform re-reads `deadline(state)` after every change, so a game only has to keep its own state right.
 
-| Constant            | Value  | Meaning                                      |
-| ------------------- | ------ | -------------------------------------------- |
-| `ROUND_SECONDS`     | 60     | Round length before the server force-ends it |
-| `ROOM_IDLE_MS`      | 30 min | Inactivity before a room deletes itself      |
-| `MAX_PLAYERS`       | 12     | Players per room                             |
-| `MAX_NAME_LENGTH`   | 12     | Characters in a display name                 |
-| `MAX_ANSWER_LENGTH` | 80     | Characters in an answer                      |
-| `CODE_LENGTH`       | 4      | Characters in a room code                    |
+Platform limits, in `shared/protocol.ts`:
+
+| Constant          | Value  | Meaning                                 |
+| ----------------- | ------ | --------------------------------------- |
+| `ROOM_IDLE_MS`    | 30 min | Inactivity before a room deletes itself |
+| `MAX_PLAYERS`     | 12     | Players per room                        |
+| `MAX_NAME_LENGTH` | 12     | Characters in a display name            |
+| `CODE_LENGTH`     | 4      | Characters in a room code               |
+
+Word Wall's own limits, in `games/word-wall/shared.ts`:
+
+| Constant            | Value | Meaning                                      |
+| ------------------- | ----- | -------------------------------------------- |
+| `ROUND_SECONDS`     | 60    | Round length before the server force-ends it |
+| `MAX_ANSWER_LENGTH` | 80    | Characters in an answer                      |
 
 ## Setup and Installation
 
@@ -262,33 +297,62 @@ rm -rf .wrangler && npm run dev
 
 ## Project Structure
 
+Read top to bottom, this is the platform/game split as directories: `shared/` and `worker/` and `src/` know about rooms, `games/` knows about play, and `engine/` is the contract between them.
+
 ```
 hubbub/
-├── shared/
-│   └── protocol.ts            # Wire contract: state, messages, limits, validators
-│                              # imported by worker AND client so they cannot drift
+├── shared/                    # Platform wire contract — no game knows it exists
+│   ├── protocol.ts            #   state, messages, limits; worker AND client import it
+│   └── validation.ts          #   enforcement, run on both sides
+├── engine/                    # What a game must provide. No game logic of its own
+│   ├── ids.ts                 #   the set of known game ids
+│   ├── server.ts              #   GameDefinition: create/apply/deadline/view
+│   └── client.ts              #   GameClient: HostView + PlayerView
+├── games/
+│   ├── server.ts              # Registry of server halves (worker bundle)
+│   ├── client.ts              # Registry of client halves (browser bundle)
+│   └── word-wall/             # One self-contained game
+│       ├── shared.ts          #   its view, commands and limits
+│       ├── prompts.ts         #   its prompt list
+│       ├── server.ts          #   its rules
+│       └── client/            #   its two screens, and the pieces they use
 ├── worker/
 │   ├── index.ts               # Worker entry: asset serving + API routing
-│   ├── room.ts                # Room Durable Object: all game logic and state
 │   ├── codes.ts               # CSPRNG room codes and host tokens
-│   └── prompts.ts             # Word Wall prompt list
+│   └── room/                  # The Room Durable Object, split by concern
+│       ├── Room.ts            #   lifecycle, effects, delegation to the game
+│       ├── state.ts           #   the room as data + its legal transformations
+│       ├── storage.ts         #   the only code that knows how a room persists
+│       ├── sockets.ts         #   attachments, tagging, best-effort sends
+│       ├── presence.ts        #   connectivity derived from the live socket set
+│       ├── credentials.ts     #   constant-time token comparison
+│       ├── join.ts            #   who is connecting: the security boundary
+│       ├── commands.ts        #   routes a message to the platform or the game
+│       ├── projection.ts      #   builds the snapshot for one role
+│       └── alarms.ts          #   multiplexes game deadline vs. room expiry
 ├── src/
 │   ├── main.tsx               # React entry
 │   ├── App.tsx                # Route switch
 │   ├── index.css              # Tailwind theme and design tokens
 │   ├── screens/
-│   │   ├── Home.tsx           # Host a room, or join one by code
-│   │   ├── HostScreen.tsx     # The shared TV screen
-│   │   └── PlayerScreen.tsx   # The phone controller
+│   │   ├── home/              #   host a room, or join one by code
+│   │   ├── host/              #   the shared screen: chrome, lobby, handover
+│   │   └── player/            #   the phone: name form, waiting room, handover
 │   ├── components/
-│   │   ├── ui.tsx             # Shared primitives
-│   │   └── QrCode.tsx         # Join QR for the host screen
+│   │   ├── ui/                #   one primitive per file
+│   │   ├── feedback/          #   loading and notice screens
+│   │   └── QrCode.tsx         #   join QR for the host screen
+│   ├── hooks/
+│   │   ├── useRoomSocket.ts   #   reconnecting socket: backoff, heartbeat, outbox
+│   │   ├── useCountdown.ts    #   deadline countdown
+│   │   ├── useRouter.ts       #   minimal history router
+│   │   └── useHomeActions.ts  #   create/join flows
 │   └── lib/
-│       ├── useRoomSocket.ts   # Reconnecting socket: backoff, heartbeat, outbox
-│       ├── session.ts         # Player ID, host token and name persistence
-│       ├── router.ts          # Minimal history router
-│       ├── api.ts             # REST calls
-│       └── useCountdown.ts    # Deadline countdown
+│       ├── connection.ts      #   the vocabulary for "a live connection"
+│       ├── session.ts         #   player ID, host token and name persistence
+│       ├── routes.ts          #   route parsing
+│       ├── urls.ts            #   socket and join URLs
+│       └── api.ts             #   REST calls
 ├── index.html
 ├── wrangler.jsonc             # Worker config, DO binding, asset rules
 ├── vite.config.ts
@@ -296,18 +360,27 @@ hubbub/
 └── .npmrc                     # Pins @cloudflare to the public registry
 ```
 
+**Adding a game**
+
+1. Add its id to `engine/ids.ts`.
+2. Write `games/<id>/shared.ts`, a `GameDefinition` and a `GameClient`.
+3. Register it in `games/server.ts` and `games/client.ts`.
+
+Nothing in `shared/`, `worker/` or `src/` changes.
+
 ## Roadmap
 
 - [x] Rooms, codes, QR joining and the lobby
 - [x] Reconnection that survives locked phones and flaky Wi-Fi
 - [x] Word Wall — everyone answers a prompt on the shared screen
+- [x] Game engine: the room machinery separated from any one game's rules
+- [ ] A second minigame, which is the first real test of the engine's seams
 - [ ] Scoring and voting on answers
-- [ ] A second minigame, at which point the shared round machinery gets pulled out into a game engine
 - [ ] Round history and an end-of-game summary
 - [ ] Sound and animation on the host screen
 - [ ] Reconnect as host after closing the TV tab
 
-The game engine abstraction is deliberately deferred. One game is not enough information to know what the right seam is, and guessing produces an abstraction that fits exactly one case.
+The engine exists, but it has only ever been asked to run one game, so its seams are a hypothesis. It was kept minimal on purpose — see [Platform vs. game](#architecture) — and the second minigame is expected to change it rather than slot neatly into it.
 
 ## Author
 

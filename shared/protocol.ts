@@ -1,9 +1,12 @@
 /**
- * The wire contract shared by the Worker, the Durable Object and the browser.
+ * The *platform* wire contract, shared by the Worker, the Durable Object and
+ * the browser.
  *
- * This file is declarations only — limits, state shapes, message shapes. The
- * behaviour that enforces it lives in `validation.ts`, so a change to how
- * input is sanitised cannot quietly change the contract itself.
+ * Scope is deliberate: this file knows about rooms, codes, seats, roles and
+ * connections, and nothing whatsoever about any particular game. Anything a
+ * game invents — its phases, its own messages, its own limits — lives with
+ * that game under `games/<id>/`, so adding a game cannot change this file and
+ * a change here cannot quietly alter a game's rules.
  *
  * Rule of thumb: the server always sends a *full* state snapshot rather than
  * diffs. A room holds at most a dozen short strings, so a snapshot is a couple
@@ -12,16 +15,14 @@
  * and reconnect mid-game.
  */
 
+import type { GameId } from "../engine/ids";
+
 // ---------------------------------------------------------------------------
 // Limits
 // ---------------------------------------------------------------------------
 
 export const MAX_PLAYERS = 12;
 export const MAX_NAME_LENGTH = 12;
-export const MAX_ANSWER_LENGTH = 80;
-
-/** How long a round lasts before the server force-ends it. */
-export const ROUND_SECONDS = 60;
 
 /** Rooms self-destruct after this much inactivity, freeing up their code. */
 export const ROOM_IDLE_MS = 30 * 60 * 1000;
@@ -38,37 +39,37 @@ export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 // State
 // ---------------------------------------------------------------------------
 
-export type Phase = "lobby" | "prompt" | "results";
-
 export type Role = "host" | "player";
+
+/** The only phase distinction the platform makes. Games phase themselves. */
+export type RoomStatus = "lobby" | "playing";
 
 export interface PublicPlayer {
   id: string;
   name: string;
   /** False while their phone is reconnecting. They keep their seat. */
   connected: boolean;
-  submitted: boolean;
-}
-
-export interface Answer {
-  playerId: string;
-  name: string;
-  text: string;
-  at: number;
 }
 
 export interface RoomState {
   code: string;
-  phase: Phase;
+  /** Which game this room runs. Fixed when the room is created. */
+  gameId: GameId;
+  status: RoomStatus;
   players: PublicPlayer[];
-  prompt: string | null;
   /**
-   * Withheld from players during the `prompt` phase so a phone can't be used
-   * to read everyone else's answer before writing its own.
+   * Epoch ms for the active game's timer, or null. The game decides when this
+   * is; the platform owns the alarm behind it and renders the countdown.
    */
-  answers: Answer[];
-  /** Epoch ms when the current round ends, or null outside a round. */
   deadline: number | null;
+  /**
+   * The active game's view for this role, or null in the lobby.
+   *
+   * Opaque on purpose: produced by the game's server-side `view`, consumed by
+   * the game's own components, and merely forwarded by everything in between.
+   * That is what stops game shapes leaking into the platform.
+   */
+  game: unknown;
 }
 
 export interface Identity {
@@ -82,10 +83,12 @@ export interface Identity {
 // ---------------------------------------------------------------------------
 
 export type ClientMessage =
-  | { t: "start" } // host: lobby/results -> prompt
-  | { t: "submit"; text: string } // player: send a word to the wall
-  | { t: "skip" } // host: end the round early
-  | { t: "reset" }; // host: back to the lobby
+  /** host: lobby -> playing */
+  | { t: "start_game" }
+  /** host: playing -> lobby, discarding the game's state */
+  | { t: "end_game" }
+  /** anything the active game defined; `c` is passed to its `parseCommand` */
+  | { t: "game"; c: unknown };
 
 export type ErrorCode =
   | "room_not_found"
@@ -95,9 +98,17 @@ export type ErrorCode =
   | "not_host"
   | "wrong_phase"
   | "bad_message"
-  | "room_closed";
+  | "room_closed"
+  /** The active game refused a command. Never fatal. */
+  | "game_rejected";
 
-/** Errors after which reconnecting is pointless — the client should give up. */
+/**
+ * The codes that can only mean "this connection will never be accepted".
+ *
+ * Used by the client to read a refused handshake, which arrives as a close
+ * code plus one of these as the reason. An error on a socket that is already
+ * open is never fatal — it is a complaint about a message, not the connection.
+ */
 export const FATAL_ERRORS: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "room_not_found",
   "room_full",

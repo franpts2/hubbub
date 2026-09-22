@@ -1,26 +1,20 @@
 /**
- * What a connected client is allowed to do, and what it does to the room.
+ * Routing a client message to whoever owns it.
  *
- * Returns a description of the result instead of saving or broadcasting.
- * Persistence, alarms and fan-out are one policy that belongs to the Durable
- * Object; whether a command is legal is a rule of the game. Separating them
- * also means every command is applied and then committed exactly once, rather
- * than each branch remembering to save for itself.
+ * Only two commands belong to the platform — take the room into a game, and
+ * bring it back out. Everything else is the active game's business and is
+ * forwarded without inspection, which is the seam that lets a game define its
+ * own vocabulary without touching this file.
+ *
+ * Returns a description of the result rather than saving or broadcasting:
+ * persistence, alarms and fan-out are one policy that belongs to the Durable
+ * Object, and keeping them there means every mutation is committed once.
  */
 
+import type { AnyGame } from "../../engine/server";
 import type { ClientMessage, ErrorCode } from "../../shared/protocol";
-import { normalizeAnswer } from "../../shared/validation";
 import type { Attachment } from "./sockets";
-import {
-  endRound,
-  everyoneAnswered,
-  findPlayer,
-  resetToLobby,
-  startRound,
-  upsertAnswer,
-  type IsConnected,
-  type StoredRoom,
-} from "./state";
+import { gameContext, returnToLobby, type IsConnected, type StoredRoom } from "./state";
 
 export type CommandOutcome =
   /** The room changed and must be persisted and broadcast. */
@@ -41,68 +35,103 @@ const NOT_HOST: CommandOutcome = {
 
 export function applyCommand(
   room: StoredRoom,
+  game: AnyGame,
   actor: Attachment,
   message: ClientMessage,
   isConnected: IsConnected,
 ): CommandOutcome {
   switch (message.t) {
-    case "start":
+    case "start_game": {
       if (actor.role !== "host") return NOT_HOST;
-      if (room.phase === "prompt") {
+      if (room.status === "playing") {
         return {
           kind: "rejected",
           code: "wrong_phase",
-          message: "A round is already running.",
+          message: "A game is already running.",
         };
       }
-      startRound(room);
+      room.status = "playing";
+      room.game = game.create(gameContext(room, isConnected));
       return APPLIED;
+    }
 
-    case "skip":
+    case "end_game": {
       if (actor.role !== "host") return NOT_HOST;
-      if (room.phase !== "prompt") return IGNORED;
-      endRound(room);
+      if (room.status === "lobby") return IGNORED;
+      returnToLobby(room, isConnected);
       return APPLIED;
+    }
 
-    case "reset":
-      if (actor.role !== "host") return NOT_HOST;
-      resetToLobby(room, isConnected);
-      return APPLIED;
-
-    case "submit":
-      return submit(room, actor, message.text, isConnected);
+    case "game":
+      return forwardToGame(room, game, actor, message.c, isConnected);
   }
 }
 
-function submit(
+function forwardToGame(
   room: StoredRoom,
+  game: AnyGame,
   actor: Attachment,
-  raw: string,
+  payload: unknown,
   isConnected: IsConnected,
 ): CommandOutcome {
-  if (actor.role !== "player") return IGNORED;
-
-  if (room.phase !== "prompt") {
+  if (room.status !== "playing") {
     return {
       kind: "rejected",
       code: "wrong_phase",
-      message: "There is no round running right now.",
+      message: "There is no game running right now.",
     };
   }
 
-  const player = findPlayer(room, actor.playerId);
-  if (player === undefined) return IGNORED;
-
-  const text = normalizeAnswer(raw);
-  if (text === null) {
-    return { kind: "rejected", code: "bad_message", message: "Write something first." };
+  const command = game.parseCommand(payload);
+  if (command === null) {
+    return {
+      kind: "rejected",
+      code: "bad_message",
+      message: "The server could not understand that message.",
+    };
   }
 
-  upsertAnswer(room, player, text);
+  const outcome = game.apply(
+    room.game,
+    command,
+    { playerId: actor.playerId, role: actor.role },
+    gameContext(room, isConnected),
+  );
 
-  // End early once everyone still connected has answered, so nobody sits
-  // watching a timer tick down for no reason.
-  if (everyoneAnswered(room, isConnected)) endRound(room);
+  switch (outcome.kind) {
+    case "changed":
+      return APPLIED;
+    case "ignored":
+      return IGNORED;
+    case "rejected":
+      return { kind: "rejected", code: "game_rejected", message: outcome.message };
+  }
+}
 
-  return APPLIED;
+/**
+ * Lets the active game react to someone joining, dropping or coming back.
+ *
+ * Presence is the platform's to know and the game's to care about — a game
+ * waiting on an answer needs to stop waiting when that phone leaves the party.
+ */
+export function notifySeatsChanged(
+  room: StoredRoom,
+  game: AnyGame,
+  isConnected: IsConnected,
+): boolean {
+  if (room.status !== "playing") return false;
+  if (game.onSeatsChanged === undefined) return false;
+  return (
+    game.onSeatsChanged(room.game, gameContext(room, isConnected)).kind === "changed"
+  );
+}
+
+/** Runs the active game's timer. Returns whether anything changed. */
+export function notifyDeadline(
+  room: StoredRoom,
+  game: AnyGame,
+  isConnected: IsConnected,
+): boolean {
+  if (room.status !== "playing") return false;
+  return game.onDeadline(room.game, gameContext(room, isConnected)).kind === "changed";
 }

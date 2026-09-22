@@ -10,7 +10,6 @@
 
 import {
   CLOSE_REFUSED,
-  FATAL_ERRORS,
   type ErrorCode,
   type Role,
   type ServerMessage,
@@ -49,9 +48,17 @@ export function send(ws: WebSocket, message: ServerMessage): void {
   sendRaw(ws, JSON.stringify(message));
 }
 
-/** Reports a problem, deriving "should the client stop retrying" from the code. */
+/**
+ * Complains about a message on an otherwise healthy socket.
+ *
+ * Never fatal, and that is not a judgement about the individual code: the
+ * connection is fine, so giving up on it cannot be the right response to a
+ * command the server did not like. Every genuinely unrecoverable case reaches
+ * the client another way — `refuseUpgrade` for a rejected handshake, and the
+ * room's own teardown for a closed room — and both say so explicitly.
+ */
 export function sendError(ws: WebSocket, code: ErrorCode, message: string): void {
-  send(ws, { t: "error", code, message, fatal: FATAL_ERRORS.has(code) });
+  send(ws, { t: "error", code, message, fatal: false });
 }
 
 export function closeQuietly(ws: WebSocket, code: number, reason: string): void {

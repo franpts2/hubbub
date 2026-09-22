@@ -1,5 +1,5 @@
-import type { Answer } from "../../../shared/protocol";
-import { Eyebrow } from "../../components/ui";
+import { Eyebrow } from "../../../src/components/ui";
+import type { Answer } from "../shared";
 
 /**
  * Cycled by position so the wall looks hand-pinned rather than gridded. Index

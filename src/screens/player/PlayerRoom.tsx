@@ -38,7 +38,8 @@ export function PlayerRoom({
     );
   }
 
-  if (state === null) {
+  // `you` arrives with the first snapshot, so this waits for both.
+  if (state === null || you === null) {
     return <LoadingScreen status={status} label={`Joining ${code}…`} />;
   }
 
@@ -55,8 +56,8 @@ export function PlayerRoom({
 
       <PlayerPhase
         state={state}
-        youId={you?.id ?? null}
-        onSubmit={(text) => send({ t: "submit", text })}
+        you={you}
+        onCommand={(command) => send({ t: "game", c: command })}
       />
 
       {/* Anything fatal returned above, so this is a recoverable complaint. */}

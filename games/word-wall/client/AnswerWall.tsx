@@ -1,4 +1,4 @@
-import type { Answer } from "../../../shared/protocol";
+import type { Answer } from "../shared";
 import { AnswerCard } from "./AnswerCard";
 
 /** Where answers land, live, as people send them. */

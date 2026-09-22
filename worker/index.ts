@@ -1,3 +1,4 @@
+import { DEFAULT_GAME_ID, isGameId, type GameId } from "../engine/ids";
 import { normalizeCode } from "../shared/validation";
 import { generateCode } from "./codes";
 import { Room } from "./room";
@@ -8,8 +9,9 @@ const CREATE_ATTEMPTS = 8;
 
 /**
  * The Worker is a thin router. It serves the built React app, mints room
- * codes, and hands WebSocket upgrades to the right Durable Object. All the
- * game logic lives in the Room DO.
+ * codes, and hands WebSocket upgrades to the right Durable Object. The room
+ * machinery lives in the Room DO, and the rules of whatever is being played
+ * live in `games/`.
  */
 export default {
   async fetch(request, env): Promise<Response> {
@@ -42,7 +44,7 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     if (request.method !== "POST") {
       return Response.json({ error: "method_not_allowed" }, { status: 405 });
     }
-    return createRoom(env);
+    return createRoom(env, await requestedGame(request));
   }
 
   const code = normalizeCode(segments[2]);
@@ -71,12 +73,26 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
   return Response.json({ error: "not_found" }, { status: 404 });
 }
 
-async function createRoom(env: Env): Promise<Response> {
+/**
+ * Which game the room should run. A room is bound to one game for life, so
+ * this is the only chance to pick — an unknown or absent id falls back to the
+ * default rather than failing, since a bad body should not block a party.
+ */
+async function requestedGame(request: Request): Promise<GameId> {
+  try {
+    const body = (await request.json()) as { gameId?: unknown };
+    return isGameId(body.gameId) ? body.gameId : DEFAULT_GAME_ID;
+  } catch {
+    return DEFAULT_GAME_ID;
+  }
+}
+
+async function createRoom(env: Env, gameId: GameId): Promise<Response> {
   // Codes are short enough that collisions are possible once a lot of rooms
   // are live, so retry rather than handing back a code someone else owns.
   for (let attempt = 0; attempt < CREATE_ATTEMPTS; attempt++) {
     const code = generateCode();
-    const result = await env.ROOM.getByName(code).tryCreate(code);
+    const result = await env.ROOM.getByName(code).tryCreate(code, gameId);
     if (result.ok) {
       return Response.json({ code, hostToken: result.hostToken });
     }

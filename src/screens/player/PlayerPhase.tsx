@@ -1,24 +1,35 @@
-import type { RoomState } from "../../../shared/protocol";
-import { AnswerForm } from "./AnswerForm";
-import { PlayerResults } from "./PlayerResults";
+import { clientGame } from "../../../games/client";
+import type { Identity, RoomState } from "../../../shared/protocol";
 import { WaitingRoom } from "./WaitingRoom";
 
-/** Maps the room's phase to the single thing the phone should be showing. */
+/**
+ * The one decision the phone shell makes: are we waiting, or is a game on?
+ *
+ * Beyond that it hands over to the active game's component. The platform has
+ * no opinion on what a phone shows mid-game, which is why adding a game does
+ * not touch this file.
+ */
 export function PlayerPhase({
   state,
-  youId,
-  onSubmit,
+  you,
+  onCommand,
 }: {
   state: RoomState;
-  youId: string | null;
-  onSubmit: (text: string) => void;
+  you: Identity;
+  onCommand: (command: unknown) => void;
 }) {
-  switch (state.phase) {
-    case "lobby":
-      return <WaitingRoom count={state.players.length} />;
-    case "prompt":
-      return <AnswerForm state={state} youId={youId} onSubmit={onSubmit} />;
-    case "results":
-      return <PlayerResults state={state} />;
+  if (state.status === "lobby") {
+    return <WaitingRoom count={state.players.length} />;
   }
+
+  const game = clientGame(state.gameId);
+  return (
+    <game.PlayerView
+      view={state.game}
+      you={you}
+      players={state.players}
+      deadline={state.deadline}
+      send={onCommand}
+    />
+  );
 }

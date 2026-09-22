@@ -1,14 +1,16 @@
 import type { PublicPlayer } from "../../../shared/protocol";
-import { Button } from "../../components/ui";
+import { Button, Eyebrow } from "../../components/ui";
 import { JoinCallout } from "./JoinCallout";
 import { PlayerRoster } from "./PlayerRoster";
 
 export function HostLobby({
   code,
+  gameName,
   players,
   onStart,
 }: {
   code: string;
+  gameName: string;
   players: PublicPlayer[];
   onStart: () => void;
 }) {
@@ -19,9 +21,13 @@ export function HostLobby({
       <JoinCallout code={code} />
 
       <div className="w-full max-w-md">
+        {/* Named so the room says what it is before anyone commits to playing. */}
+        <Eyebrow className="mb-3" tone="punch">
+          Playing {gameName}
+        </Eyebrow>
         <PlayerRoster players={players} />
         <Button onClick={onStart} disabled={empty} className="mt-8 w-full text-2xl">
-          {empty ? "Need a player" : "Start the round"}
+          {empty ? "Need a player" : "Start the game"}
         </Button>
       </div>
     </div>

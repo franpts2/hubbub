@@ -1,23 +1,35 @@
 import { useState, type FormEvent } from "react";
 
-import { MAX_ANSWER_LENGTH, type RoomState } from "../../../shared/protocol";
-import { normalizeAnswer } from "../../../shared/validation";
-import { Button, CountdownChip, TextField, eyebrowClass } from "../../components/ui";
-import { useCountdown } from "../../hooks/useCountdown";
-import { hasSubmitted } from "../../lib/roomState";
+import {
+  Button,
+  CountdownChip,
+  TextField,
+  eyebrowClass,
+} from "../../../src/components/ui";
+import { useCountdown } from "../../../src/hooks/useCountdown";
+import {
+  MAX_ANSWER_LENGTH,
+  hasSubmitted,
+  normalizeAnswer,
+  type WordWallView,
+} from "../shared";
 
 export function AnswerForm({
-  state,
+  view,
   youId,
+  deadline,
   onSubmit,
 }: {
-  state: RoomState;
+  view: WordWallView;
   youId: string | null;
+  deadline: number | null;
   onSubmit: (text: string) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const remaining = useCountdown(state.deadline);
-  const submitted = hasSubmitted(state.players, youId);
+  const remaining = useCountdown(deadline);
+  // The server is the source of truth for whether our answer landed, so a
+  // submission lost to a dropped socket does not look like a success.
+  const submitted = hasSubmitted(view, youId);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -31,7 +43,7 @@ export function AnswerForm({
   return (
     <div className="flex flex-1 flex-col gap-5">
       <div className="flex items-start justify-between gap-4">
-        <h1 className="flex-1 text-2xl font-black text-balance">{state.prompt}</h1>
+        <h1 className="flex-1 text-2xl font-black text-balance">{view.prompt}</h1>
         {remaining !== null ? <CountdownChip seconds={remaining} size="sm" /> : null}
       </div>
 
