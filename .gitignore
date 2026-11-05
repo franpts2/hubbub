@@ -7,6 +7,10 @@ coverage
 worker-configuration.d.ts
 *.log
 
+# Local package-manager experiments; the project uses npm.
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # Agent skills installed by `npx skills add`. Local tooling for whoever is
 # working on the repo, not part of the project.
 .agents/
