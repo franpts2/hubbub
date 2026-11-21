@@ -1,25 +1,20 @@
 # Hubbub
 
-[![Live site](https://img.shields.io/badge/Live_Site-hubbub.franciscaportugal2005.workers.dev-ff3d81)](https://hubbub.franciscaportugal2005.workers.dev)
-[![CI and deploy](https://github.com/franpts2/hubbub/actions/workflows/ci.yml/badge.svg)](https://github.com/franpts2/hubbub/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+A party game for one room and a lot of phones: the TV shows the board, everyone else plays from a browser.
 
-<div align="left">
-	<img src="https://img.shields.io/badge/Cloudflare_Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Cloudflare Workers"/>
-	<img src="https://img.shields.io/badge/Durable_Objects-F38020?style=for-the-badge&logo=cloudflare&logoColor=white" alt="Durable Objects"/>
-	<img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React"/>
-	<img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript"/>
-	<img src="https://img.shields.io/badge/Tailwind_CSS-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white" alt="Tailwind CSS"/>
-	<img src="https://img.shields.io/badge/Vite-646CFF?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite"/>
-</div>
+<p align="left">
+  <a href="https://hubbub.franciscaportugal2005.workers.dev"><img src="https://img.shields.io/badge/live-hubbub.franciscaportugal2005.workers.dev-FF3D81?style=flat-square" alt="Live site"></a>
+  <a href="https://github.com/franpts2/hubbub/actions/workflows/ci.yml"><img src="https://github.com/franpts2/hubbub/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/MIT-green?style=flat-square" alt="MIT license"></a>
+</p>
 
-A party game for one room and a lot of phones. The television shows the board and a
-four-letter room code; everyone else joins from a browser and their phone becomes a
-controller. No app, no accounts, no sign-up.
-
-Named for the noise a room makes when everyone answers at once, **Hubbub** is a real-time
-multiplayer experiment in doing a lot with very little: one Cloudflare Worker, one Durable
-Object per room, and three games that all have to share the same table.
+<p align="left">
+  <img src="https://img.shields.io/badge/Cloudflare-F38020?style=for-the-badge&logo=Cloudflare&logoColor=white" alt="Cloudflare">
+  <img src="https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React">
+  <img src="https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS">
+  <img src="https://img.shields.io/badge/Vite-B73BFE?style=for-the-badge&logo=vite&logoColor=FFD62E" alt="Vite">
+</p>
 
 ## About
 
@@ -39,7 +34,11 @@ engine, which is what keeps adding a game from touching the platform.
 
 [Open the deployed application](https://hubbub.franciscaportugal2005.workers.dev)
 
-## Key Features
+## Screenshot
+
+![Hubbub host screen](docs/screenshots/home.jpg)
+
+## Features
 
 - **One shared screen, many phones** — the host opens the board; everyone else joins from
   a browser. Nothing to install and nothing to sign up for.
@@ -78,31 +77,7 @@ engine, which is what keeps adding a game from touching the platform.
 | Leave               | Close the tab; your seat is released immediately                   |
 | Reconnect           | Reopen the link; the same browser keeps its seat and name          |
 
-## Live Demo
-
-Live at: [https://hubbub.franciscaportugal2005.workers.dev](https://hubbub.franciscaportugal2005.workers.dev)
-
-To run it locally instead:
-
-```bash
-npm install
-npm run dev
-```
-
-Then open [http://localhost:5173](http://localhost:5173). Open the host screen in one window
-and the join link in another — or on a phone — to play.
-
-## Technical Implementation
-
-**Tech Stack**
-
-- Runtime: Cloudflare Workers
-- State: Durable Objects with the SQLite storage backend
-- Frontend: React 19, TypeScript 5.9, Tailwind CSS 4
-- Build: Vite 8 with `@cloudflare/vite-plugin`
-- Transport: WebSockets with Hibernation
-- Testing: Vitest 4, two projects — plain Node for the rules, real workerd for the effects
-- Tooling: Wrangler 4, ESLint, Prettier
+## How It Works
 
 **Folder Structure**
 
@@ -200,7 +175,7 @@ engine changes at all. Three differently shaped games, two additions total.
 Nothing in `shared/`, `worker/` or `src/` changes, and the game picker on the home screen
 fills itself in from the client registry.
 
-## Getting Started
+## Quick Start
 
 **Prerequisites:** Node.js 22+ and npm 10+. No Cloudflare account is needed to run locally —
 Durable Objects run through Wrangler's local runtime.
@@ -325,4 +300,4 @@ MIT © 2026 Francisca Portugal. See [LICENSE](./LICENSE).
 
 ---
 
-_Hubbub by Francisca Portugal — frontend engineer._
+_Hubbub — the noise a room makes when everyone answers at once._
